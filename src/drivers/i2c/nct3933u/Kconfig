@@ -1,0 +1,17 @@
+## SPDX-License-Identifier: GPL-2.0-or-later
+
+config DRIVERS_I2C_NCT3933U
+	bool
+	default n
+	help
+	  Enable support for NCT3933U current DAC. Used for adjusting
+	  voltages on some mainboards.
+
+config DRIVERS_I2C_NCT3933U_DRAM
+	bool
+	default n
+	select DRIVERS_I2C_NCT3933U
+	select MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE
+	help
+	  Enable this if the mainboard's DRAM voltage rail is adjusted
+	  with an NCT3933U chip defined in the board's devicetree.

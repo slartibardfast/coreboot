@@ -1530,6 +1530,18 @@ config MEMLAYOUT_LD_FILE
 	  (bootblock, romstage, verstage, ramstage, postcar) in
 	  src/arch/${ARCH}/Makefile.mk.
 
+config PLATFORM_SUPPORTS_ADJUSTING_DRAM_VOLTAGE
+	bool
+	default n
+
+config MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE
+	bool
+	default n
+	depends on PLATFORM_SUPPORTS_ADJUSTING_DRAM_VOLTAGE
+	help
+	  If enabled, raminit will automatically call set_dram_voltage to
+	  adjust the DRAM supply voltage.
+
 ###############################################################################
 # Set default values for symbols created before mainboards.  This allows the
 # option to be displayed in the general menu, but the default to be loaded in

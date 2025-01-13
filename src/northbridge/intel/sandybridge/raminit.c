@@ -198,6 +198,58 @@ static void mainboard_get_spd(spd_ddr3_raw_data *spd, bool id_only)
 	} /* CONFIG(HAVE_SPD_IN_CBFS) */
 }
 
+static int dram_find_highest_common_voltage(spd_ddr3_raw_data *spd)
+{
+	int channel, spd_slot;
+	struct dimm_attr_ddr3_st dimm;
+
+	/* Initialised to min/max voltages of the board. Clamped as we iterate over DIMMs */
+	int voltage_min = CONFIG_DRAM_AUTO_VOLTAGE_MINIMUM_MV;
+	int voltage_max = CONFIG_DRAM_AUTO_VOLTAGE_MAXIMUM_MV;
+
+	/* Highest XMP-requested voltage, clamped down as we iterate. If this is higher
+	 * than the maximum permitted voltage, it means no XMP profile is used. */
+	int voltage_xmp_min = voltage_max + 1;
+
+	FOR_ALL_CHANNELS {
+		for (int slot = 0; slot < NUM_SLOTS; slot++) {
+			spd_slot = 2 * channel + slot;
+			if (spd[spd_slot][SPD_MEMORY_TYPE] == SPD_MEMORY_TYPE_SDRAM_DDR3) {
+				spd_decode_ddr3(&dimm, spd[spd_slot]);
+
+				/* Clamp voltage_min to the highest minimum operation voltage
+				 * when using the standard SPD profile */
+				if (dimm.flags.operable_1_25V)
+					voltage_min = MAX(voltage_min, 1250);
+				else if (dimm.flags.operable_1_35V)
+					voltage_min = MAX(voltage_min, 1350);
+				else /* All DDR3 DIMMs are supposed to work at 1.5V */
+					voltage_min = 1500;
+
+				spd_xmp_decode_ddr3(&dimm, spd[spd_slot],
+				                       DDR3_XMP_PROFILE_1);
+				if (dimm.dram_type == SPD_MEMORY_TYPE_SDRAM_DDR3) {
+					/* XMP profile exists */
+					voltage_xmp_min = MIN(voltage_xmp_min, dimm.voltage);
+					voltage_max = MIN(voltage_max, dimm.voltage);
+				} else {
+					/* Non-XMP DIMM. Revert to JEDEC standard voltage maximum */
+					voltage_max = 1500;
+				}
+			}
+		}
+	}
+
+	/* If the lowest XMP requested voltage is higher than the maximum,
+	 * we can't use any XMP profiles and thus revert to SPD minimum voltage */
+	if (voltage_xmp_min > voltage_max)
+		return voltage_min;
+
+	/* Lower than 1.5V XMP profiles also exist. Make sure we won't undervolt any
+	 * non-DDR3L DIMMs if such low-voltage XMP DIMMs are installed. */
+	return MAX(voltage_min, voltage_xmp_min);
+}
+
 static void dram_find_spds_ddr3(spd_ddr3_raw_data *spd, ramctr_timing *ctrl)
 {
 	int dimms = 0, ch_dimms;
@@ -208,6 +260,20 @@ static void dram_find_spds_ddr3(spd_ddr3_raw_data *spd, ramctr_timing *ctrl)
 
 	ctrl->extended_temperature_range = 1;
 	ctrl->auto_self_refresh = 1;
+
+	if (CONFIG(MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE)) {
+		printk(BIOS_DEBUG, "Mainboard has adjustable DRAM voltage. ");
+		if (CONFIG(NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY)) {
+			ctrl->voltage_mv = dram_find_highest_common_voltage(spd);
+			printk(BIOS_DEBUG, "Selected %i mV automatically.\n", ctrl->voltage_mv);
+		} else {
+			ctrl->voltage_mv = CONFIG_DRAM_MANUAL_VOLTAGE_MV;
+			printk(BIOS_DEBUG, "%i mV was chosen manually.\n", ctrl->voltage_mv);
+		}
+	} else {
+		/* Board doesn't implement adjustable voltage. Assume it is 1.5V. */
+		ctrl->voltage_mv = 1500;
+	}
 
 	FOR_ALL_CHANNELS {
 		ctrl->channel_size_mb[channel] = 0;
@@ -246,10 +312,9 @@ static void dram_find_spds_ddr3(spd_ddr3_raw_data *spd, ramctr_timing *ctrl)
 				else
 					spd_decode_ddr3(dimm, spd[spd_slot]);
 
-			} else if (dimm->voltage != 1500) {
-				/* TODO: Support DDR3 voltages other than 1500mV */
-				printram("XMP profile's requested %u mV is unsupported.\n",
-						 dimm->voltage);
+			} else if (dimm->voltage > ctrl->voltage_mv) {
+				printram("XMP profile's requested %u mV is above maximum (%i mV).\n",
+						 dimm->voltage, ctrl->voltage_mv);
 
 				if (CONFIG(NATIVE_RAMINIT_IGNORE_XMP_REQUESTED_VOLTAGE))
 					printk(BIOS_WARNING,

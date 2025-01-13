@@ -417,6 +417,8 @@ typedef struct ramctr_timing_st {
 
 	struct ram_rank_timings timings[NUM_CHANNELS][NUM_SLOTRANKS];
 
+	u16 voltage_mv;
+
 	dimm_info info;
 } ramctr_timing;
 

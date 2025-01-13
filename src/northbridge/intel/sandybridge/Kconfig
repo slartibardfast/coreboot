@@ -8,6 +8,7 @@ config NORTHBRIDGE_INTEL_SANDYBRIDGE
 	select INTEL_GMA_ACPI
 	select NEED_SMALL_2MB_PAGE_TABLES
 	select DRAM_SUPPORT_DDR3
+	select PLATFORM_SUPPORTS_ADJUSTING_DRAM_VOLTAGE
 
 if NORTHBRIDGE_INTEL_SANDYBRIDGE
 
@@ -87,6 +88,51 @@ config NATIVE_RAMINIT_IGNORE_XMP_REQUESTED_VOLTAGE
 	  Disabled by default because it allows forcing memory to run out of
 	  specification. Consider this to be an overclocking option.
 	  Handle with care!
+
+config NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY
+	bool "Adjust DRAM voltage automatically based on SPD and XMP data"
+	default y
+	depends on MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE && USE_NATIVE_RAMINIT
+	help
+	  Automatically set DRAM voltage based on SPD and XMP profiles,
+	  respecting the minimum and maximum voltage set below.
+
+config MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+	int
+	default 1650
+
+config MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE
+	int
+	default 1250
+
+config DRAM_AUTO_VOLTAGE_MAXIMUM_MV
+	int "Maximum DRAM voltage in millivolts"
+	default MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE if MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE < 1650
+	default 1650 if MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE >= 1650
+	range 1500 MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+	depends on NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY
+	help
+	  Upper safety limit for automatic DRAM supply voltage. Proceed
+	  with caution. Higher voltages can damage your board, CPU and RAM!
+
+config DRAM_AUTO_VOLTAGE_MINIMUM_MV
+	int "Minimum DRAM voltage in millivolts"
+	default MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE if MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE > 1250
+	default 1250 if MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE <= 1250
+	range MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE 1500
+	depends on NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY
+	help
+	  Lower limit for automatic DRAM supply voltage.
+
+config DRAM_MANUAL_VOLTAGE_MV
+	int "Manual DRAM supply voltage in millivolts"
+	default 1500
+	range MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+	depends on MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE && !NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY
+	help
+	  Here you can manually set the desired DRAM voltage. Proceed with
+	  caution, this can cause instability, failure to boot or destroy
+	  your board, CPU and RAM!
 
 config CBFS_SIZE
 	default 0x100000

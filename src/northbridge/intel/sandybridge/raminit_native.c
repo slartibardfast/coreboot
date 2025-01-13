@@ -660,6 +660,13 @@ int try_init_dram_ddr3(ramctr_timing *ctrl, int fast_boot, bool s3resume, int me
 			IS_SANDY_CPU(ctrl->cpu) ? "Sandy" : "Ivy",
 			fast_boot ? "fast boot" : "full initialization");
 
+	/* We assume voltage setting is preserved in S3. But on any other kind of boot,
+	 * the board could've lost power, so it's not safe to assume. */
+	if (!s3resume && CONFIG(MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE)) {
+		printk(BIOS_DEBUG, "Setting DRAM voltage to %i mV\n", ctrl->voltage_mv);
+		set_dram_voltage(ctrl->voltage_mv);
+	}
+
 	if (!fast_boot) {
 		/* Find fastest common supported parameters */
 		dram_find_common_params(ctrl);

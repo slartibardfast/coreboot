@@ -66,6 +66,12 @@ void early_init_dmi(void);
 /* mainboard_early_init: Optional callback, run after console init but before raminit. */
 void mainboard_early_init(bool s3resume);
 void perform_raminit(bool s3resume);
+
+/*
+ * set_dram_voltage: called from raminit to set DRAM supply voltage on boards that
+ * can adjust the voltage.
+ */
+enum cb_err set_dram_voltage(int voltage_mv);
 void report_memory_config(void);
 enum platform_type get_platform_type(void);
 

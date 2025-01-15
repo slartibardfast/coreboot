@@ -179,6 +179,24 @@ chip northbridge/intel/sandybridge
 			end
 			device ref smbus on
 				subsystemid 0x1849 0x1e22
+				device i2c 0x14 off
+					chip drivers/i2c/nct3933u
+						register "default_mv" = "{1832, 1048, 1059}"
+						register "step_uv" = "{8200, 9313, 9313}"
+						device generic 1 alias v_cpu_pll off end
+						device generic 2 alias v_vtt off end
+						device generic 3 alias v_pch off end
+					end
+				end
+				device i2c 0x15 on
+					chip drivers/i2c/nct3933u
+						register "default_mv" = "{0, 0, 1600}"
+						register "step_uv" = "{0, 0, 5000}"
+						device generic 1 alias d3_vrefca_a off end
+						device generic 2 alias d3_vrefdq_a off end
+						device generic 3 alias v_dram on end
+					end
+				end
 			end
 		end
 	end

@@ -32,4 +32,74 @@ config MAX_CPUS
 	int
 	default 8
 
+config FORCE_MAX_TURBO_RATIO
+	bool "Force turbo ratios to the maximum possible value"
+	default y
+	help
+	  By selecting this, all core turbo ratios will be set to the maximum
+	  possible value, which is the maximum non-turbo ratio of the CPU plus
+	  the number of overclocking bins by which the CPU can be overclocked.
+
+	  For fully unlocked parts (K-series, oc_bins == 7) the automatic mode
+	  sets all core counts to max_non_turbo + 7. Use OVERRIDE_TURBO_RATIOS
+	  below for finer control.
+
+	  WARNING: This is an overclocking option and may cause instability,
+	  especially on mobile platforms with limited cooling solutions!
+
+config OVERRIDE_TURBO_RATIOS
+	bool "Override per-core turbo ratios (fully unlocked parts only)"
+	depends on FORCE_MAX_TURBO_RATIO
+	default n
+	help
+	  For fully unlocked processors (oc_bins == 7, i.e. K-series and XE
+	  parts), override the automatic turbo ratio calculation with explicit
+	  per-core-count ratios.  This allows setting e.g. a higher 1C turbo
+	  and a lower 4C turbo for thermal management.
+
+	  The ratios must satisfy: 1C >= 2C >= 3C >= 4C.  If this constraint
+	  is violated, the override is ignored and the automatic uniform
+	  maximum is used instead.
+
+	  Sandy Bridge architectural maximum multiplier is 57 (5.7 GHz).
+	  Ivy Bridge architectural maximum multiplier is 63 (6.3 GHz).
+	  The correct limit is selected automatically at runtime.
+	  This option has no effect on parts that are not fully unlocked.
+
+config TURBO_RATIO_LIMIT_1C
+	int "Maximum turbo ratio for 1 core active"
+	depends on OVERRIDE_TURBO_RATIOS
+	range 16 63
+	default 42
+	help
+	  Turbo ratio multiplier when only 1 core is active (e.g. 42 = 4.2 GHz).
+	  Default of 42 is conservative for an i7-2600K at stock voltage.
+
+config TURBO_RATIO_LIMIT_2C
+	int "Maximum turbo ratio for 2 cores active"
+	depends on OVERRIDE_TURBO_RATIOS
+	range 16 63
+	default 41
+	help
+	  Turbo ratio multiplier when 2 cores are active (e.g. 41 = 4.1 GHz).
+	  Default of 41 is conservative for an i7-2600K at stock voltage.
+
+config TURBO_RATIO_LIMIT_3C
+	int "Maximum turbo ratio for 3 cores active"
+	depends on OVERRIDE_TURBO_RATIOS
+	range 16 63
+	default 40
+	help
+	  Turbo ratio multiplier when 3 cores are active (e.g. 40 = 4.0 GHz).
+	  Default of 40 is conservative for an i7-2600K at stock voltage.
+
+config TURBO_RATIO_LIMIT_4C
+	int "Maximum turbo ratio for 4 cores active"
+	depends on OVERRIDE_TURBO_RATIOS
+	range 16 63
+	default 39
+	help
+	  Turbo ratio multiplier when 4 cores are active (e.g. 39 = 3.9 GHz).
+	  Default of 39 is conservative for an i7-2600K at stock voltage.
+
 endif

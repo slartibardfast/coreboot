@@ -442,6 +442,109 @@ static void model_206ax_report(void)
 	printk(BIOS_INFO, "CPU: VT %ssupported\n", mode[vt]);
 }
 
+
+/*
+ * XE means eXtreme Edition, which are processors that can be overclocked.
+ * SNB/IVB K-series processors aren't the only overclockable parts, though.
+ * CPUs with Turbo Boost can often do some limited OC. We enable that here.
+ *
+ * XE Initialization and MSR Documentation based on
+ * "Sandy Bridge Processor Family BIOS Writer's Guide (BWG)"
+ * Document Number 504790
+ * Revision 1.6.0, June 2012
+ *
+ * MSR_TURBO_RATIO_LIMIT (0x1AD) layout for quad-core SNB/IVB:
+ *   Bits  7:0  - Maximum ratio for 1 core active
+ *   Bits 15:8  - Maximum ratio for 2 cores active
+ *   Bits 23:16 - Maximum ratio for 3 cores active
+ *   Bits 31:24 - Maximum ratio for 4 cores active
+ *
+ * Sandy Bridge architectural maximum multiplier: 57 (5.7 GHz)
+ * Ivy Bridge architectural maximum multiplier: 63 (6.3 GHz)
+ */
+#define SNB_MAX_RATIO 57
+#define IVB_MAX_RATIO 63
+
+static void xe_init(void)
+{
+	/* If overclocking is not enabled, do not touch anything */
+	if (!CONFIG(FORCE_MAX_TURBO_RATIO)) {
+		printk(BIOS_SPEW, "XE: not overriding Turbo Ratio limits\n");
+		return;
+	}
+
+	const uint32_t cpuid = cpu_get_cpuid();
+
+	/* Validate CPU family — IS_SANDY_CPU / IS_IVY_CPU are from model_206ax.h */
+	if (!IS_SANDY_CPU(cpuid) && !IS_IVY_CPU(cpuid)) {
+		printk(BIOS_WARNING, "XE: Unrecognised CPUID 0x%x, skipping\n", cpuid);
+		return;
+	}
+
+	const msr_t flex_ratio = rdmsr(MSR_FLEX_RATIO);
+	const uint8_t oc_bins = (flex_ratio.lo >> 17) & 0x7;
+
+	const msr_t plat_info = rdmsr(MSR_PLATFORM_INFO);
+	if (!(plat_info.lo & PLATFORM_INFO_SET_TURBO_LIMIT)) {
+		printk(BIOS_WARNING, "XE: Cannot enable, CPU does not support ratio limit\n");
+		return;
+	}
+	const uint8_t max_non_turbo = (plat_info.lo >> 8) & 0xff;
+	const uint8_t max_ratio = IS_IVY_CPU(cpuid) ? IVB_MAX_RATIO : SNB_MAX_RATIO;
+
+	uint8_t ratio_1c, ratio_2c, ratio_3c, ratio_4c;
+	bool use_overrides = false;
+
+	/*
+	 * Fully unlocked parts (oc_bins == 7) can go up to the architectural
+	 * maximum.  If per-core overrides are configured, validate and use
+	 * them instead of the uniform automatic calculation.
+	 */
+	if (oc_bins == 7 && CONFIG(OVERRIDE_TURBO_RATIOS)) {
+		ratio_1c = CONFIG_TURBO_RATIO_LIMIT_1C;
+		ratio_2c = CONFIG_TURBO_RATIO_LIMIT_2C;
+		ratio_3c = CONFIG_TURBO_RATIO_LIMIT_3C;
+		ratio_4c = CONFIG_TURBO_RATIO_LIMIT_4C;
+
+		if (ratio_1c >= ratio_2c && ratio_2c >= ratio_3c &&
+		    ratio_3c >= ratio_4c && ratio_1c <= max_ratio) {
+			use_overrides = true;
+		} else if (ratio_1c > max_ratio) {
+			printk(BIOS_WARNING,
+			       "XE: 1C ratio %u exceeds arch max %u, "
+			       "falling back to auto\n",
+			       ratio_1c, max_ratio);
+		} else {
+			printk(BIOS_ERR,
+			       "XE: Invalid ratio config: %u/%u/%u/%u "
+			       "(1C >= 2C >= 3C >= 4C violated), "
+			       "falling back to auto\n",
+			       ratio_1c, ratio_2c, ratio_3c, ratio_4c);
+		}
+	}
+
+	if (use_overrides) {
+		printk(BIOS_NOTICE,
+		       "XE: Per-core overrides: 1C=%u 2C=%u 3C=%u 4C=%u\n",
+		       ratio_1c, ratio_2c, ratio_3c, ratio_4c);
+	} else {
+		const uint8_t xe_ratio = MIN(max_non_turbo + oc_bins,
+					     max_ratio);
+		ratio_1c = ratio_2c = ratio_3c = ratio_4c = xe_ratio;
+
+		printk(BIOS_NOTICE,
+		       "XE: Setting uniform Turbo Ratio to %u (%u OC bins)\n",
+		       xe_ratio, oc_bins);
+	}
+
+	msr_t turbo_ratio_limit = rdmsr(MSR_TURBO_RATIO_LIMIT);
+
+	turbo_ratio_limit.lo  = (ratio_4c << 24) | (ratio_3c << 16) |
+				(ratio_2c <<  8) | (ratio_1c <<  0);
+
+	wrmsr(MSR_TURBO_RATIO_LIMIT, turbo_ratio_limit);
+}
+
 static void model_206ax_init(struct device *cpu)
 {
 	/* Clear out pending MCEs */
@@ -481,6 +584,9 @@ static void model_206ax_init(struct device *cpu)
 
 	/* Enable Turbo */
 	enable_turbo();
+
+	/* Apply turbo ratio overclocking limits */
+	xe_init();
 }
 
 /* MP initialization support. */

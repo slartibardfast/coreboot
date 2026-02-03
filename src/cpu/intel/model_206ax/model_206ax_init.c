@@ -442,6 +442,61 @@ static void model_206ax_report(void)
 	printk(BIOS_INFO, "CPU: VT %ssupported\n", mode[vt]);
 }
 
+
+/*
+ * XE means eXtreme Edition, which are processors that can be overclocked.
+ * SNB/IVB K-series processors aren't the only overclockable parts, though.
+ * CPUs with Turbo Boost can often do some limited OC. We enable that here.
+ *
+ * XE Initialization and MSR Documentation based on
+ * "Sandy Bridge Processor Family BIOS Writer's Guide (BWG)"
+ * Document Number 504790
+ * Revision 1.6.0, June 2012
+ */
+static void xe_init(void)
+{
+	/* If overclocking is not enabled, do not touch anything */
+	if (!CONFIG(FORCE_MAX_TURBO_RATIO)) {
+		printk(BIOS_SPEW, "XE: not overriding Turbo Ratio limits\n");
+		return;
+	}
+
+	/*
+	 * Get the number of OC bins for this processor.
+	 *
+	 * FIXME: Fully unlocked parts (oc_bins == 7) can go higher.
+	 */
+	const msr_t flex_ratio = rdmsr(MSR_FLEX_RATIO);
+	const uint8_t oc_bins = (flex_ratio.lo >> 17) & 0x7;
+
+	/* Ensure that the preconditions for XE are true */
+	if (cpuid_eax(1) < 0x206a3) {
+		/* These are early preproduction steppings */
+		printk(BIOS_WARNING, "XE: Cannot enable, CPU stepping too low\n");
+		return;
+	}
+	const msr_t plat_info = rdmsr(MSR_PLATFORM_INFO);
+	if (!(plat_info.lo & PLATFORM_INFO_SET_TURBO_LIMIT)) {
+		printk(BIOS_WARNING, "XE: Cannot enable, CPU does not support ratio limit\n");
+		return;
+	}
+	const uint8_t max_non_turbo = (plat_info.lo >> 8) & 0xff;
+	const uint8_t xe_ratio = max_non_turbo + oc_bins;
+
+	msr_t turbo_ratio_limit = rdmsr(MSR_TURBO_RATIO_LIMIT);
+
+	turbo_ratio_limit.lo  = 0;
+	turbo_ratio_limit.lo |= xe_ratio <<  0;
+	turbo_ratio_limit.lo |= xe_ratio <<  8;
+	turbo_ratio_limit.lo |= xe_ratio << 16;
+	turbo_ratio_limit.lo |= xe_ratio << 24;
+
+	printk(BIOS_NOTICE, "XE: Setting Turbo Ratio to %u (%u OC bins)\n",
+		xe_ratio, oc_bins);
+
+	wrmsr(MSR_TURBO_RATIO_LIMIT, turbo_ratio_limit);
+}
+
 static void model_206ax_init(struct device *cpu)
 {
 	/* Clear out pending MCEs */
@@ -481,6 +536,9 @@ static void model_206ax_init(struct device *cpu)
 
 	/* Enable Turbo */
 	enable_turbo();
+
+	/* Crank up the turbo ratio, if possible and desired */
+	xe_init();
 }
 
 /* MP initialization support. */

@@ -4,6 +4,7 @@
 #include <device/pci.h>
 #include <device/pciexp.h>
 #include <device/pci_ids.h>
+#include <console/console.h>
 #include <assert.h>
 
 static const char *pcie_acpi_name(const struct device *dev)
@@ -41,8 +42,44 @@ static const char *pcie_acpi_name(const struct device *dev)
 	return NULL;
 }
 
+/*
+ * Mark large prefetchable BARs on PEG children for above-4G allocation.
+ * This enables ReBAR support on Sandy/Ivy Bridge by allowing resized BARs
+ * that exceed available 32-bit MMIO space to be placed above 4GB.
+ */
+static void peg_read_resources(struct device *dev)
+{
+	/* First do standard PCI bridge resource reading */
+	pci_bus_read_resources(dev);
+
+	/* Then mark large prefetch BARs for above-4G allocation */
+	struct bus *bus = dev->downstream;
+	if (!bus)
+		return;
+
+	for (struct device *child = bus->children; child; child = child->sibling) {
+		for (struct resource *res = child->resource_list; res; res = res->next) {
+			/* Only memory BARs */
+			if (!(res->flags & IORESOURCE_MEM))
+				continue;
+			/* Only prefetchable (VRAM, not MMIO registers) */
+			if (!(res->flags & IORESOURCE_PREFETCH))
+				continue;
+			/* Only 64-bit capable BARs */
+			if (res->limit <= 0xffffffffULL)
+				continue;
+			/* Mark BARs > 256MB for above-4G - won't fit reliably below */
+			if (res->size > 256 * MiB) {
+				res->flags |= IORESOURCE_ABOVE_4G;
+				printk(BIOS_DEBUG, "PEG: %s %02lx size %llx marked above 4G\n",
+				       dev_path(child), res->index, res->size);
+			}
+		}
+	}
+}
+
 static struct device_operations device_ops = {
-	.read_resources		= pci_bus_read_resources,
+	.read_resources		= peg_read_resources,
 	.set_resources		= pci_dev_set_resources,
 	.enable_resources	= pci_bus_enable_resources,
 	.scan_bus		= pciexp_scan_bridge,

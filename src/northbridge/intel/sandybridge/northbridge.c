@@ -68,9 +68,15 @@ static void add_fixed_resources(struct device *dev, int index)
 	reserved_ram_from_to(dev, index++, 0xc0000, 1 * MiB);
 
 	if (is_sandybridge()) {
-		/* Required for SandyBridge sighting 3715511 */
-		bad_ram_resource_kb(dev, index++, 0x20000000 >> 10, 0x00200000 >> 10);
-		bad_ram_resource_kb(dev, index++, 0x40000000 >> 10, 0x00200000 >> 10);
+	/*
+		 * Required for SandyBridge sighting 3715511.
+		 *
+		 * Note: bad_ram_resource_kb sets IORESOURCE_CACHEABLE which is
+		 * semantically incorrect - these are not cacheable RAM regions,
+		 * they are hardware exclusion zones.
+		 */
+		mmio_resource_kb(dev, index++, 0x20000000 >> 10, 0x00200000 >> 10);
+		mmio_resource_kb(dev, index++, 0x40000000 >> 10, 0x00200000 >> 10);
 	}
 
 	/* Reserve IOMMU BARs */
@@ -98,6 +104,10 @@ static void mc_read_resources(struct device *dev)
 	unsigned long long tomk;
 	unsigned long index = 3;
 	const union dpr_register dpr = txt_get_chipset_dpr();
+
+	/* Reset global state to prevent accumulation on re-enumeration */
+	uma_memory_base = 0;
+	uma_memory_size = 0;
 
 	pci_dev_read_resources(dev);
 
@@ -214,6 +224,18 @@ static void mc_read_resources(struct device *dev)
 	upper_ram_end(dev, index++, touud);
 
 	add_fixed_resources(dev, index++);
+
+	if (CONFIG(ALWAYS_ALLOW_ABOVE_4G_ALLOCATION)) {
+		printk(BIOS_DEBUG, "SNB/IVB resource summary:\n");
+		printk(BIOS_DEBUG, "  RAM: 0-0xa0000, 1M-%lluK\n", tomk);
+		printk(BIOS_DEBUG, "  UMA: base=0x%llx size=0x%llx\n", 
+		       uma_memory_base, uma_memory_size);
+		printk(BIOS_DEBUG, "  TOUUD: 0x%llx (above4G=%s)\n", 
+		       touud, touud > 4ULL * GiB ? "yes" : "no");
+		if (is_sandybridge()) {
+			printk(BIOS_DEBUG, "  SNB errata holes: 0x20000000, 0x40000000\n");
+		}
+	}
 }
 
 static void northbridge_dmi_init(struct device *dev)

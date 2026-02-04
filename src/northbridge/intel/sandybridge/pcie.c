@@ -49,30 +49,30 @@ static const char *pcie_acpi_name(const struct device *dev)
  */
 static void peg_read_resources(struct device *dev)
 {
-	/* First do standard PCI bridge resource reading */
 	pci_bus_read_resources(dev);
 
-	/* Then mark large prefetch BARs for above-4G allocation */
 	struct bus *bus = dev->downstream;
 	if (!bus)
 		return;
 
 	for (struct device *child = bus->children; child; child = child->sibling) {
 		for (struct resource *res = child->resource_list; res; res = res->next) {
-			/* Only memory BARs */
-			if (!(res->flags & IORESOURCE_MEM))
-				continue;
-			/* Only prefetchable (VRAM, not MMIO registers) */
-			if (!(res->flags & IORESOURCE_PREFETCH))
-				continue;
-			/* Only 64-bit capable BARs */
-			if (res->limit <= 0xffffffffULL)
-				continue;
-			/* Mark BARs > 256MB for above-4G - won't fit reliably below */
-			if (res->size > 256 * MiB) {
+			/* Large 64-bit prefetchable BARs go above 4G */
+			if ((res->flags & IORESOURCE_PREFETCH) &&
+			    (res->limit > 0xffffffffULL) &&
+			    (res->size > 512 * MiB)) {
 				res->flags |= IORESOURCE_ABOVE_4G;
-				printk(BIOS_DEBUG, "PEG: %s %02lx size %llx marked above 4G\n",
-				       dev_path(child), res->index, res->size);
+				printk(BIOS_DEBUG, "PEG: %s %02lx -> above 4G\n",
+				       dev_path(child), res->index);
+			}
+			/* Small prefetchable BARs keep below 4G for GOP */
+			else if ((res->flags & IORESOURCE_PREFETCH) &&
+			         (res->limit > 0xffffffffULL) &&
+			         (res->size <= 512 * MiB) &&
+			         (res->size > 0)) {
+				res->flags &= ~IORESOURCE_PREFETCH;
+				printk(BIOS_DEBUG, "PEG: %s %02lx -> non-prefetch\n",
+				       dev_path(child), res->index);
 			}
 		}
 	}

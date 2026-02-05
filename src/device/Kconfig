@@ -731,6 +731,18 @@ config PCIEXP_DEFAULT_MAX_RESIZABLE_BAR_BITS
 	  MiB). Valid values range from 20 (1 MiB) to 63 (8 EiB); these come
 	  from the Resizable BAR portion of the PCIe spec (7.8.6).
 
+config PCIEXP_DEFER_REBAR_FOR_VGA
+	bool "Defer ReBAR resize until after VGA BIOS execution"
+	depends on PCIEXP_SUPPORT_RESIZABLE_BARS
+	depends on VGA_ROM_RUN
+	default n
+	help
+		When enabled, VGA devices with ReBAR capability will initially
+		be configured with their minimum BAR size to allow legacy VBIOS
+		execution. After VBIOS runs and VFCT is created, the BAR will
+		be resized and relocated above 4G. The original BAR region will
+		be marked as reserved.
+
 endif # PCIEXP_SUPPORT_RESIZABLE_BARS
 
 config PCIEXP_LANE_ERR_STAT_CLEAR

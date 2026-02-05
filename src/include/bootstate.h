@@ -85,6 +85,7 @@ typedef enum {
 	BS_OS_RESUME,
 	BS_WRITE_TABLES,
 	BS_PAYLOAD_LOAD,
+	BS_LATE_REBAR,
 	BS_PAYLOAD_BOOT,
 } boot_state_t;
 

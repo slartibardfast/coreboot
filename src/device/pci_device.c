@@ -27,6 +27,22 @@
 #include <timestamp.h>
 #include <types.h>
 
+// Move struct to top of file or header (with const pointer)
+struct deferred_rebar {
+    const struct device *dev;
+    struct resource *res;
+    unsigned int epos;
+    uint64_t old_base;
+    uint64_t old_size;
+    uint32_t rebar_sizes;
+};
+
+#define MAX_DEFERRED_REBAR 4
+static struct deferred_rebar deferred_rebars[MAX_DEFERRED_REBAR];
+static int num_deferred_rebars = 0;
+
+static void pci_rebar_reserve_old_region(uint64_t base, uint64_t size);
+
 u8 pci_moving_config8(struct device *dev, unsigned int reg)
 {
 	u8 value, ones, zeroes;
@@ -421,6 +437,30 @@ static void configure_adjustable_base(const struct device *dev,
 		printk(BIOS_ERR, "Resizable BAR requested"
 		       " above 32 bits, but PCI function reported a"
 		       " 32-bit BAR.");
+		return;
+	}
+
+	if (!size_mask)
+			return;
+	
+	// NEW: Check if this is a VGA device that needs deferred resize
+	if (CONFIG(PCIEXP_DEFER_REBAR_FOR_VGA) && 
+		((dev->class >> 8) == PCI_CLASS_DISPLAY_VGA)) {
+		
+		printk(BIOS_INFO, "%s: Deferring ReBAR resize for VGA device\n",
+						dev_path(dev));
+		
+		// Record for later resize, but keep current small size
+		if (num_deferred_rebars < MAX_DEFERRED_REBAR) {
+				deferred_rebars[num_deferred_rebars].dev = dev;
+				deferred_rebars[num_deferred_rebars].res = res;
+				deferred_rebars[num_deferred_rebars].epos = 
+						pciexp_find_extended_cap(dev, PCIE_EXT_CAP_RESIZABLE_BAR, 0);
+				deferred_rebars[num_deferred_rebars].rebar_sizes = size_mask; // Use existing variable
+				num_deferred_rebars++;
+		}
+		
+		// DON'T modify res->size - keep original small BAR
 		return;
 	}
 
@@ -1806,4 +1846,102 @@ void pci_assign_irqs(struct device *dev, const unsigned char pIntAtoD[4])
 		i8259_configure_irq_trigger(irq, IRQ_LEVEL_TRIGGERED);
 	}
 }
+
+
+// Helper functions - define BEFORE pci_late_rebar_resize() or use forward declarations
+static uint64_t pci_rebar_find_space_above_4g(const struct device *dev,
+                                               uint64_t size)
+{
+    (void)dev; // Unused for now
+    
+    uint64_t base = 0x200000000ULL;  // 8GB
+    uint64_t limit = 0x800000000ULL; // 32GB
+    
+    base = ALIGN_UP(base, size);
+    
+    if (base + size > limit)
+        return 0;
+    
+    return base;
+}
+
+static void pci_rebar_reserve_old_region(uint64_t base, uint64_t size)
+{
+    printk(BIOS_INFO, "Reserving old ReBAR region: 0x%llx - 0x%llx\n",
+           base, base + size - 1);
+    
+    // TODO: Add to bootmem/E820 as reserved
+    bootmem_add_range(base, size, BM_MEM_RESERVED);
+}
+
+void pci_late_rebar_resize(void)
+{
+    if (!CONFIG(PCIEXP_DEFER_REBAR_FOR_VGA))
+        return;
+        
+    if (num_deferred_rebars == 0)
+        return;
+        
+    printk(BIOS_INFO, "Performing deferred ReBAR resize for %d device(s)\n",
+           num_deferred_rebars);
+    
+    for (int i = 0; i < num_deferred_rebars; i++) {
+        struct deferred_rebar *dr = &deferred_rebars[i];
+        const struct device *dev = dr->dev;
+        struct resource *res = dr->res;
+        
+        // Save old BAR location before resize
+        dr->old_base = res->base;
+        dr->old_size = res->size;
+        
+        printk(BIOS_INFO, "%s: Old BAR @ 0x%llx size 0x%llx\n",
+               dev_path(dev), dr->old_base, dr->old_size);
+        
+        // Calculate new size (max supported up to config limit)
+        unsigned int max_bits = __fls64(dr->rebar_sizes) + 20;
+        if (max_bits > CONFIG_PCIEXP_DEFAULT_MAX_RESIZABLE_BAR_BITS)
+            max_bits = CONFIG_PCIEXP_DEFAULT_MAX_RESIZABLE_BAR_BITS;
+        
+        uint64_t new_size = 1ULL << max_bits;
+        
+        // Find space above 4G for new BAR
+        uint64_t new_base = pci_rebar_find_space_above_4g(dev, new_size);
+        if (new_base == 0) {
+            printk(BIOS_ERR, "%s: Cannot find space above 4G for ReBAR\n",
+                   dev_path(dev));
+            continue;
+        }
+        
+        // Disable memory decoding during BAR reprogram
+        uint16_t cmd = pci_read_config16(dev, PCI_COMMAND);
+        pci_write_config16(dev, PCI_COMMAND, cmd & ~PCI_COMMAND_MEMORY);
+        
+        // Update resource size FIRST (pci_store_rebar_size reads from res->size)
+        res->size = new_size;
+        
+        // Write new size to ReBAR control register
+        pci_store_rebar_size(dev, res);
+        
+        // Program new BAR address
+        unsigned long reg = res->index;
+        pci_write_config32(dev, reg, (uint32_t)new_base);
+        if (res->flags & IORESOURCE_PCI64) {
+            pci_write_config32(dev, reg + 4, (uint32_t)(new_base >> 32));
+        }
+        
+        // Update resource base and flags
+        res->base = new_base;
+        res->flags |= IORESOURCE_ABOVE_4G | IORESOURCE_PCIE_RESIZABLE_BAR;
+        
+        // Re-enable memory decoding
+        pci_write_config16(dev, PCI_COMMAND, cmd);
+        
+        printk(BIOS_INFO, "%s: New BAR @ 0x%llx size 0x%llx (%u bits)\n",
+               dev_path(dev), new_base, new_size, max_bits);
+        
+        // Mark old region as reserved
+        pci_rebar_reserve_old_region(dr->old_base, dr->old_size);
+    }
+}
+
 #endif

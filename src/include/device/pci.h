@@ -147,4 +147,6 @@ void pci_dev_request_bus_master(struct device *dev)
 
 void pci_early_bridge_init(void);
 
+void pci_late_rebar_resize(void);
+
 #endif /* PCI_H */

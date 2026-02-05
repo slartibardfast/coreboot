@@ -190,9 +190,11 @@ static boot_state_t bs_write_tables(void *arg)
 
 	return BS_PAYLOAD_LOAD;
 }
-
+    
 static boot_state_t bs_payload_load(void *arg)
 {
+  pci_late_rebar_resize();
+
 	payload_load();
 
 	return BS_PAYLOAD_BOOT;

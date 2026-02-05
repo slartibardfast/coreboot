@@ -429,9 +429,15 @@ static void configure_adjustable_base(const struct device *dev,
 	res->align = max_requested_bits;
 	res->gran = max_requested_bits;
 	res->limit = (res->flags & IORESOURCE_PCI64) ? UINT64_MAX : UINT32_MAX;
-	res->flags |= (res->flags & IORESOURCE_PCI64) ?
-		IORESOURCE_PCIE_RESIZABLE_BAR | IORESOURCE_ABOVE_4G :
-		IORESOURCE_PCIE_RESIZABLE_BAR;
+	res->flags |= IORESOURCE_PCIE_RESIZABLE_BAR;
+	if (res->flags & IORESOURCE_PCI64) {
+			if (res->size > 512 * MiB) {
+					res->flags |= IORESOURCE_ABOVE_4G;
+			} else {
+					/* Small BARs: demote to non-prefetch to keep below 4G for GOP */
+					res->flags &= ~IORESOURCE_PREFETCH;
+			}
+	}
 
 	printk(BIOS_INFO, "%s: Adjusting resource index %lu: base: %llx size: %llx "
 	       "align: %d gran: %d limit: %llx\n",

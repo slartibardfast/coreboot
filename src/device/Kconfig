@@ -1021,6 +1021,16 @@ config ALWAYS_ALLOW_ABOVE_4G_ALLOCATION
 	  Please keep in mind that not all payloads support it
 	  (i.e: LinuxBoot and EDK2 do, SeaBIOS and GRUB don't).
 
+config ABOVE_4G_ALLOCATION_MIN_SIZE
+	hex "Minimum BAR size for above-4G placement"
+	default 0x100000
+	depends on ALWAYS_ALLOW_ABOVE_4G_ALLOCATION
+	help
+	  Resources smaller than this threshold remain below 4G even when
+	  ALWAYS_ALLOW_ABOVE_4G_ALLOCATION is set.
+	  Keeps small PCH register BARs (SMBus, HDA, XHCI) in low MMIO.
+	  Default 1 MiB. Set to 0 to restore unrestricted behavior
+
 config XHCI_UTILS
 	def_bool n
 	help

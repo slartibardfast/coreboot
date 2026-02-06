@@ -115,6 +115,31 @@ config DISABLE_C1E
 	  or real-time audio.  Plain C1 clock-gating still provides
 	  idle power savings with near-zero wake-up penalty.
 
+config ACPI_CSTATE_LIMIT
+	int "Maximum ACPI C-state advertised to OS"
+	default 0
+	range 0 4
+	help
+	  Auto-populate the ACPI _CST table with a standard core
+	  C-state mapping up to the specified depth.  This controls
+	  what core C-states the OS may request via MWAIT.
+
+	    0 = no _CST table (OS uses built-in defaults)
+	    1 = C1 only
+	    2 = C1 + C3  (L1/L2 flush, clocks stopped; 63us exit)
+	    3 = C1 + C3 + C6  (core power gated; 87us exit)
+	    4 = C1 + C3 + C7  (C6 + LLC flush; 90us exit)
+
+	  Explicit devicetree acpi_c1/c2/c3 values take precedence.
+
+	  This is effective for Windows and OSes that honour ACPI
+	  _CST.  Linux intel_idle bypasses _CST entirely; use the
+	  kernel parameter intel_idle.max_cstate=N instead.
+
+	  Use 1 for maximum stability on overclocked desktops.
+	  Use 0 (or leave devicetree unset) for default behaviour.
+
+
 config PKG_CSTATE_LIMIT
 	int "Package C-state limit"
 	default 7

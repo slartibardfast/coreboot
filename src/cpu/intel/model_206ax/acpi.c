@@ -118,6 +118,30 @@ static void generate_C_state_entries(const struct device *dev)
 
 	int acpi_cstates[3] = { conf->acpi_c1, conf->acpi_c2, conf->acpi_c3 };
 
+  /*
+	 * If the devicetree does not set any C-states explicitly, populate
+	 * a standard mapping from the ACPI_CSTATE_LIMIT Kconfig value.
+	 *
+	 * Mapping:
+	 *   limit >= 1 → ACPI C1 = hardware C1
+	 *   limit >= 2 → ACPI C2 = hardware C3 (core clocks stopped)
+	 *   limit >= 3 → ACPI C3 = hardware C6 (core power gated)
+	 *   limit >= 4 → ACPI C3 = hardware C7 (C6 + LLC flush)
+	 */
+	if (CONFIG_ACPI_CSTATE_LIMIT > 0 &&
+	    acpi_cstates[0] == 0 && acpi_cstates[1] == 0 && acpi_cstates[2] == 0) {
+		acpi_cstates[0] = C_STATE_C1;
+		if (CONFIG_ACPI_CSTATE_LIMIT >= 2)
+			acpi_cstates[1] = C_STATE_C3;
+		if (CONFIG_ACPI_CSTATE_LIMIT >= 3)
+			acpi_cstates[2] = C_STATE_C6;
+		if (CONFIG_ACPI_CSTATE_LIMIT >= 4)
+			acpi_cstates[2] = C_STATE_C7;
+		printk(BIOS_INFO, "ACPI C-state limit %d: auto-populated _CST\n",
+		       CONFIG_ACPI_CSTATE_LIMIT);
+	}
+
+
 	acpi_cstate_t acpi_cstate_map[ARRAY_SIZE(acpi_cstates)] = { 0 };
 	/* Count number of active C-states */
 	int count = 0;

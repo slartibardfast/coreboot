@@ -143,7 +143,7 @@ void set_power_limits(u8 power_limit_1_time)
 		/* Set long term power limit to TDP */
 		limit.lo |= tdp & PKG_POWER_LIMIT_MASK;
 	}
-	if (conf->pl2_clamp) {
+	if (conf->pl1_clamp) {
 		printk(BIOS_DEBUG, "Enabling PL1 clamping limitation\n");
 		limit.lo |= PKG_POWER_LIMIT_CLAMP;
 	}

@@ -137,6 +137,24 @@ config PKG_CSTATE_LIMIT
 	    7 = no limit       (deepest, default)
 
 	  Use 0 for overclocked desktops, 7 for laptops/servers.
+	 
+config ENERGY_PERF_BIAS
+	int "Energy-Performance Bias (EPB) hint value"
+	default 6
+	range 0 15
+	help
+	  Initial value for IA32_ENERGY_PERF_BIAS (MSR 0x1b0).
+	  Controls how aggressively the hardware trades performance
+	  for power savings in P-state and turbo decisions.
+
+	    0  = performance (fastest transitions, no power saving)
+	    4  = balance-performance
+	    6  = normal (default)
+	    8  = balance-power
+	    15 = power save (most aggressive saving)
+
+	  Use 0 for overclocked desktops.  Note that Linux may
+	  override this via the intel_epb driver at OS boot.
 
 
 endif

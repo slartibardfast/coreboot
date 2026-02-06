@@ -583,7 +583,7 @@ static void model_206ax_init(struct device *cpu)
 	configure_dca_cap();
 
 	/* Set energy policy */
-	set_energy_perf_bias(ENERGY_POLICY_NORMAL);
+	set_energy_perf_bias(CONFIG_ENERGY_PERF_BIAS);
 
 	/* Set Max Ratio */
 	set_max_ratio();

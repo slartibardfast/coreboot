@@ -2,6 +2,19 @@
 
 chip northbridge/intel/sandybridge
 	register "spd_addresses" = "{0x50, 0x51, 0x52, 0x53}"
+
+	chip cpu/intel/model_206ax
+		# PL1 (sustained): 125W — safe for high-end air cooling
+		register "pl1_mw" = "125000"
+		register "pl1_clamp" = "1"
+
+		# PL2 (burst): 160W — allows turbo spikes during transient loads
+		register "pl2_mw" = "160000"
+		register "pl2_clamp" = "1"
+
+		device cpu_cluster 0 on end
+	end
+
 	device domain 0 on
 		device ref host_bridge on
 			subsystemid 0x1849 0x0150

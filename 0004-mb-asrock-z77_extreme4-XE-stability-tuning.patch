@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Connolly <david@connol.ly>
+Date: Thu, 06 Feb 2026 00:00:00 +0000
+Subject: [PATCH 4/4] mb/asrock/z77_extreme4: XE stability tuning for
+ overclocked operation
+
+Configure stability-related settings for overclocked Sandy/Ivy
+Bridge operation on the Z77 Extreme4:
+
+1. PP0 (vCore) current limit: 130A
+
+   The default Icc limit of 112A in the coreboot code matches the
+   Intel stock TDP spec.  The Z77 Extreme4's ISL6367-based VRM is
+   capable of ~130A sustained.  At elevated turbo ratios (44x 1C/2C,
+   42x 3C/4C) with PL1=165W, transient current spikes during burst
+   load onset can exceed 112A, triggering the CPU's internal current
+   throttle and causing sudden clock drops.
+
+2. Package C-state limit: 0 (PC0/PC1 only)
+
+   Prevents the package from entering deep C-states (PC6/PC7)
+   which require large voltage rail transitions on wake.  Keeps the
+   VRM in a steady operating region.
+
+3. Energy-Performance Bias: 0 (performance)
+
+   Makes the hardware P-state controller react as fast as possible
+   to load changes, minimising time at intermediate voltage/frequency
+   points during ramp-up to turbo ratios.
+
+4. ACPI C-state limit: 1 (C1 only)
+
+   Advertises only C1 in the ACPI _CST table, preventing Windows
+   and other ACPI-aware OSes from requesting deep core C-states
+   (CC3/CC6/CC7).  Linux intel_idle bypasses _CST, so Linux users
+   should also set intel_idle.max_cstate=1 on the kernel cmdline.
+
+These settings prioritise stability and latency over idle power
+savings, matching the intended use case of an overclocked desktop
+with high-end air cooling.
+
+Depends on:
+  cpu/intel/model_206ax: add configurable package C-state limit
+  cpu/intel/model_206ax: add configurable energy-performance bias
+  cpu/intel/model_206ax: add configurable ACPI C-state limit
+  mb/asrock/z77_extreme4: configure CPU power limits via devicetree
+
+Change-Id: I0000000000000000000000000000000000000014
+Signed-off-by: David Connolly <david@connol.ly>
+---
+ src/mainboard/asrock/z77_extreme4/Kconfig      | 12 ++++++++++++
+ src/mainboard/asrock/z77_extreme4/devicetree.cb |  3 +++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/src/mainboard/asrock/z77_extreme4/Kconfig b/src/mainboard/asrock/z77_extreme4/Kconfig
+index 7777777777..8888888888 100644
+--- a/src/mainboard/asrock/z77_extreme4/Kconfig
++++ b/src/mainboard/asrock/z77_extreme4/Kconfig
+@@ -3,4 +3,16 @@ if BOARD_ASROCK_Z77_EXTREME4
+ # existing board Kconfig content ...
+ 
++config PKG_CSTATE_LIMIT
++	int
++	default 0
++
++config ENERGY_PERF_BIAS
++	int
++	default 0
++
++config ACPI_CSTATE_LIMIT
++	int
++	default 1
++
+ endif # BOARD_ASROCK_Z77_EXTREME4
+diff --git a/src/mainboard/asrock/z77_extreme4/devicetree.cb b/src/mainboard/asrock/z77_extreme4/devicetree.cb
+index 6666666666..7777777777 100644
+--- a/src/mainboard/asrock/z77_extreme4/devicetree.cb
++++ b/src/mainboard/asrock/z77_extreme4/devicetree.cb
+@@ -12,6 +12,9 @@
+ 		# PL2 (burst): 200W — allows full turbo headroom during burst loads
+ 		register "pl2_mw" = "200000"
+ 		register "pl2_clamp" = "1"
++
++		# PP0 vCore current limit: 130A (ISL6367 4-phase VRM capability)
++		register "pp0_current_limit" = "130"
+ 
+ 		device cpu_cluster 0 on end
+ 	end
+-- 
+2.43.0
+

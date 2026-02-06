@@ -115,5 +115,28 @@ config DISABLE_C1E
 	  or real-time audio.  Plain C1 clock-gating still provides
 	  idle power savings with near-zero wake-up penalty.
 
+config PKG_CSTATE_LIMIT
+	int "Package C-state limit"
+	default 7
+	range 0 7
+	help
+	  Maximum package C-state depth allowed in
+	  MSR_PKG_CST_CONFIG_CONTROL bits 2:0.
+
+	  Sandy/Ivy Bridge has no package C3; the package jumps
+	  from PC1 directly to PC6.  Core C3 (CC3) still exists
+	  but is independent of this setting.
+
+	  Encoding:
+	    0 = PC0/PC1 only  (shallowest, most stable)
+	    1 = PC2
+	    2 = PC6 non-retention
+	    3 = PC6 retention
+	    4 = PC7
+	    5 = PC7s
+	    7 = no limit       (deepest, default)
+
+	  Use 0 for overclocked desktops, 7 for laptops/servers.
+
 
 endif

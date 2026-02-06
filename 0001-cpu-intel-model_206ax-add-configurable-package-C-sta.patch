@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Connolly <david@connol.ly>
+Date: Thu, 06 Feb 2026 00:00:00 +0000
+Subject: [PATCH 1/4] cpu/intel/model_206ax: add configurable package C-state
+ limit
+
+The deepest package C-state is currently hardcoded to 7 (unlimited)
+in configure_c_states() via MSR_PKG_CST_CONFIG_CONTROL bits 2:0.
+This allows the package to enter PC6/PC7 when all cores are idle.
+
+On desktop systems targeting stability under overclocked turbo
+ratios, deep package C-states can cause voltage rail fluctuations
+when the VRM rapidly transitions between near-zero and full load
+current draw.  Limiting the package to PC1 (value 0) keeps the
+voltage regulators in a steady operating region, eliminating one
+source of transient undervolt during wake.
+
+Note: Sandy/Ivy Bridge has no package C3 state.  The package jumps
+directly from PC1 to PC2 to PC6.  "C3" on these CPUs exists only
+as a core-level state (CC3).
+
+Sandy/Ivy Bridge MSR_PKG_CST_CONFIG_CONTROL bits 2:0 encoding:
+  0 = PC0/PC1 only (shallowest, no deep package states)
+  1 = PC2
+  2 = PC6 non-retention
+  3 = PC6 retention
+  4 = PC7
+  5 = PC7s
+  7 = no limit (deepest, current default)
+
+Add a Kconfig int PKG_CSTATE_LIMIT (range 0-7, default 7) to make
+this configurable without changing the default behaviour.
+
+Change-Id: I0000000000000000000000000000000000000011
+Signed-off-by: David Connolly <david@connol.ly>
+---
+ src/cpu/intel/model_206ax/Kconfig            | 23 +++++++++++++++++++++++
+ src/cpu/intel/model_206ax/model_206ax_init.c |  3 ++-
+ 2 files changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/src/cpu/intel/model_206ax/Kconfig b/src/cpu/intel/model_206ax/Kconfig
+index 2222222222..3333333333 100644
+--- a/src/cpu/intel/model_206ax/Kconfig
++++ b/src/cpu/intel/model_206ax/Kconfig
+@@ -31,4 +31,27 @@ config DISABLE_C1E
+ 	  Select this for latency-sensitive workloads such as gaming
+ 	  or real-time audio.  Plain C1 clock-gating still provides
+ 	  idle power savings with near-zero wake-up penalty.
+ 
++config PKG_CSTATE_LIMIT
++	int "Package C-state limit"
++	default 7
++	range 0 7
++	help
++	  Maximum package C-state depth allowed in
++	  MSR_PKG_CST_CONFIG_CONTROL bits 2:0.
++
++	  Sandy/Ivy Bridge has no package C3; the package jumps
++	  from PC1 directly to PC6.  Core C3 (CC3) still exists
++	  but is independent of this setting.
++
++	  Encoding:
++	    0 = PC0/PC1 only  (shallowest, most stable)
++	    1 = PC2
++	    2 = PC6 non-retention
++	    3 = PC6 retention
++	    4 = PC7
++	    5 = PC7s
++	    7 = no limit       (deepest, default)
++
++	  Use 0 for overclocked desktops, 7 for laptops/servers.
++
+ endif # CPU_INTEL_MODEL_206AX
+diff --git a/src/cpu/intel/model_206ax/model_206ax_init.c b/src/cpu/intel/model_206ax/model_206ax_init.c
+index 4444444444..5555555555 100644
+--- a/src/cpu/intel/model_206ax/model_206ax_init.c
++++ b/src/cpu/intel/model_206ax/model_206ax_init.c
+@@ -205,7 +205,8 @@ static void configure_c_states(void)
+ 	msr.lo |= (1 << 26);	// C1 Auto Demotion Enable
+ 	msr.lo |= (1 << 25);	// C3 Auto Demotion Enable
+ 	msr.lo &= ~(1 << 10);	// Disable IO MWAIT redirection
+-	msr.lo |= 7;		// No package C-state limit
++	msr.lo &= ~7;		// Clear package C-state limit
++	msr.lo |= CONFIG_PKG_CSTATE_LIMIT & 7;
+ 
+ 	msr.lo |= (1 << 15);	// Lock C-State MSR
+ 	wrmsr(MSR_PKG_CST_CONFIG_CONTROL, msr);
+-- 
+2.43.0
+

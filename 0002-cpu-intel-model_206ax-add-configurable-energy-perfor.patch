@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Connolly <david@connol.ly>
+Date: Thu, 06 Feb 2026 00:00:00 +0000
+Subject: [PATCH 2/4] cpu/intel/model_206ax: add configurable
+ energy-performance bias
+
+The Energy-Performance Bias hint (IA32_ENERGY_PERF_BIAS, MSR 0x1b0)
+is currently hardcoded to ENERGY_POLICY_NORMAL (value 6).  This
+tells the hardware power management unit to tolerate moderate
+performance loss in exchange for energy savings, affecting how
+aggressively the CPU transitions between P-states and enters
+opportunistic turbo.
+
+On desktop systems targeting maximum turbo stability, a value of 0
+(ENERGY_POLICY_PERFORMANCE) makes the hardware P-state controller
+react faster to load changes, reducing time spent at intermediate
+voltage/frequency points during ramp-up.  This eliminates a class
+of transient undervolt where the CPU begins executing at a high
+ratio before the voltage request has fully propagated.
+
+EPB value mapping (Intel SDM):
+  0  = performance     (fastest P-state transitions)
+  4  = balance-performance
+  6  = normal           (current default)
+  8  = balance-power
+  15 = power save       (most aggressive power savings)
+
+Add a Kconfig int ENERGY_PERF_BIAS (range 0-15, default 6) to make
+this configurable without changing the default behaviour.
+
+Note: Linux may override this value at boot via the intel_epb driver
+or the x86_energy_perf_policy tool, but the firmware setting
+establishes the initial policy for early boot and for operating
+systems that do not reprogram the MSR.
+
+Change-Id: I0000000000000000000000000000000000000012
+Signed-off-by: David Connolly <david@connol.ly>
+---
+ src/cpu/intel/model_206ax/Kconfig            | 18 ++++++++++++++++++
+ src/cpu/intel/model_206ax/model_206ax_init.c |  2 +-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/src/cpu/intel/model_206ax/Kconfig b/src/cpu/intel/model_206ax/Kconfig
+index 3333333333..4444444444 100644
+--- a/src/cpu/intel/model_206ax/Kconfig
++++ b/src/cpu/intel/model_206ax/Kconfig
+@@ -54,4 +54,22 @@ config PKG_CSTATE_LIMIT
+ 
+ 	  Use 0 for overclocked desktops, 7 for laptops/servers.
+ 
++config ENERGY_PERF_BIAS
++	int "Energy-Performance Bias (EPB) hint value"
++	default 6
++	range 0 15
++	help
++	  Initial value for IA32_ENERGY_PERF_BIAS (MSR 0x1b0).
++	  Controls how aggressively the hardware trades performance
++	  for power savings in P-state and turbo decisions.
++
++	    0  = performance (fastest transitions, no power saving)
++	    4  = balance-performance
++	    6  = normal (default)
++	    8  = balance-power
++	    15 = power save (most aggressive saving)
++
++	  Use 0 for overclocked desktops.  Note that Linux may
++	  override this via the intel_epb driver at OS boot.
++
+ endif # CPU_INTEL_MODEL_206AX
+diff --git a/src/cpu/intel/model_206ax/model_206ax_init.c b/src/cpu/intel/model_206ax/model_206ax_init.c
+index 5555555555..6666666666 100644
+--- a/src/cpu/intel/model_206ax/model_206ax_init.c
++++ b/src/cpu/intel/model_206ax/model_206ax_init.c
+@@ -302,7 +302,7 @@ static void model_206ax_init(struct device *cpu)
+ 	configure_dca_cap();
+ 
+ 	/* Set energy policy */
+-	set_energy_perf_bias(ENERGY_POLICY_NORMAL);
++	set_energy_perf_bias(CONFIG_ENERGY_PERF_BIAS);
+ 
+ 	/* Set Max Ratio */
+ 	set_max_ratio();
+-- 
+2.43.0
+

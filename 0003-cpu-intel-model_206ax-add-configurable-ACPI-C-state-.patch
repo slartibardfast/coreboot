@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Connolly <david@connol.ly>
+Date: Thu, 06 Feb 2026 00:00:00 +0000
+Subject: [PATCH 3/4] cpu/intel/model_206ax: add configurable ACPI C-state
+ limit
+
+The ACPI _CST table advertises available core C-states to the
+operating system.  Currently, the three _CST slots (acpi_c1,
+acpi_c2, acpi_c3) must be configured per-board in the devicetree.
+If unset (all zero), no _CST object is generated and the OS falls
+back to its built-in table (Linux intel_idle ignores _CST entirely
+and always uses its own MWAIT hint table).
+
+Add a Kconfig int ACPI_CSTATE_LIMIT that auto-populates the _CST
+slots with a standard mapping when the devicetree does not set them
+explicitly.  This provides a simple single-knob control for Windows
+and other OSes that honour ACPI _CST:
+
+  0 = no _CST generated (current default, OS uses built-in)
+  1 = C1 only
+  2 = C1 + C3  (core C3: L1/L2 flush, clocks stopped)
+  3 = C1 + C3 + C6  (core power gated)
+  4 = C1 + C3 + C7  (C6 + LLC flush)
+
+Explicit devicetree acpi_c1/c2/c3 values always take precedence
+over the Kconfig default.
+
+Note for Linux users: the intel_idle driver bypasses ACPI _CST and
+uses its own built-in C-state table.  To limit core C-states on
+Linux, use the kernel parameter intel_idle.max_cstate=N.
+
+Change-Id: I0000000000000000000000000000000000000013
+Signed-off-by: David Connolly <david@connol.ly>
+---
+ src/cpu/intel/model_206ax/Kconfig | 24 ++++++++++++++++++++++++
+ src/cpu/intel/model_206ax/acpi.c  | 22 ++++++++++++++++++++++
+ 2 files changed, 46 insertions(+)
+
+diff --git a/src/cpu/intel/model_206ax/Kconfig b/src/cpu/intel/model_206ax/Kconfig
+index 4444444444..5555555555 100644
+--- a/src/cpu/intel/model_206ax/Kconfig
++++ b/src/cpu/intel/model_206ax/Kconfig
+@@ -72,4 +72,28 @@ config ENERGY_PERF_BIAS
+ 	  Use 0 for overclocked desktops.  Note that Linux may
+ 	  override this via the intel_epb driver at OS boot.
+ 
++config ACPI_CSTATE_LIMIT
++	int "Maximum ACPI C-state advertised to OS"
++	default 0
++	range 0 4
++	help
++	  Auto-populate the ACPI _CST table with a standard core
++	  C-state mapping up to the specified depth.  This controls
++	  what core C-states the OS may request via MWAIT.
++
++	    0 = no _CST table (OS uses built-in defaults)
++	    1 = C1 only
++	    2 = C1 + C3  (L1/L2 flush, clocks stopped; 63us exit)
++	    3 = C1 + C3 + C6  (core power gated; 87us exit)
++	    4 = C1 + C3 + C7  (C6 + LLC flush; 90us exit)
++
++	  Explicit devicetree acpi_c1/c2/c3 values take precedence.
++
++	  This is effective for Windows and OSes that honour ACPI
++	  _CST.  Linux intel_idle bypasses _CST entirely; use the
++	  kernel parameter intel_idle.max_cstate=N instead.
++
++	  Use 1 for maximum stability on overclocked desktops.
++	  Use 0 (or leave devicetree unset) for default behaviour.
++
+ endif # CPU_INTEL_MODEL_206AX
+diff --git a/src/cpu/intel/model_206ax/acpi.c b/src/cpu/intel/model_206ax/acpi.c
+index aaaaaaaaaa..bbbbbbbbbb 100644
+--- a/src/cpu/intel/model_206ax/acpi.c
++++ b/src/cpu/intel/model_206ax/acpi.c
+@@ -117,6 +117,28 @@ static void generate_C_state_entries(const struct device *dev)
+ 
+ 	int acpi_cstates[3] = { conf->acpi_c1, conf->acpi_c2, conf->acpi_c3 };
+ 
++	/*
++	 * If the devicetree does not set any C-states explicitly, populate
++	 * a standard mapping from the ACPI_CSTATE_LIMIT Kconfig value.
++	 *
++	 * Mapping:
++	 *   limit >= 1 → ACPI C1 = hardware C1
++	 *   limit >= 2 → ACPI C2 = hardware C3 (core clocks stopped)
++	 *   limit >= 3 → ACPI C3 = hardware C6 (core power gated)
++	 *   limit >= 4 → ACPI C3 = hardware C7 (C6 + LLC flush)
++	 */
++	if (CONFIG_ACPI_CSTATE_LIMIT > 0 &&
++	    acpi_cstates[0] == 0 && acpi_cstates[1] == 0 && acpi_cstates[2] == 0) {
++		acpi_cstates[0] = C_STATE_C1;
++		if (CONFIG_ACPI_CSTATE_LIMIT >= 2)
++			acpi_cstates[1] = C_STATE_C3;
++		if (CONFIG_ACPI_CSTATE_LIMIT >= 3)
++			acpi_cstates[2] = C_STATE_C6;
++		if (CONFIG_ACPI_CSTATE_LIMIT >= 4)
++			acpi_cstates[2] = C_STATE_C7;
++		printk(BIOS_INFO, "ACPI C-state limit %d: auto-populated _CST\n",
++		       CONFIG_ACPI_CSTATE_LIMIT);
++	}
++
+ 	acpi_cstate_t acpi_cstate_map[ARRAY_SIZE(acpi_cstates)] = { 0 };
+ 	/* Count number of active C-states */
+ 	int count = 0;
+-- 
+2.43.0
+

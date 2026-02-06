@@ -205,7 +205,8 @@ static void configure_c_states(struct device *dev)
 	msr.lo |= (1 << 26);	// C1 Auto Demotion Enable
 	msr.lo |= (1 << 25);	// C3 Auto Demotion Enable
 	msr.lo &= ~(1 << 10);	// Disable IO MWAIT redirection
-	msr.lo |= 7;		// No package C-state limit
+	msr.lo &= ~7;		// Clear package C-state limit
+	msr.lo |= CONFIG_PKG_CSTATE_LIMIT & 7;
 
 	msr.lo |= (1 << 15);	// Lock C-State MSR
 	wrmsr(MSR_PKG_CST_CONFIG_CONTROL, msr);

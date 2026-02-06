@@ -354,14 +354,13 @@ static void northbridge_init(struct device *dev)
 	set_power_limits(28);
 
 	/*
-	 * CPUs with configurable TDP also need power limits set in MCHBAR.
-	 * Use the same values from MSR_PKG_POWER_LIMIT.
+	 * The PCU enforces the minimum of MSR_PKG_POWER_LIMIT and the MCHBAR
+	 * mirror on all SKUs, not just configurable TDP.  Always mirror the
+	 * MSR so that devicetree power limit overrides take effect.
 	 */
-	if (cpu_config_tdp_levels()) {
-		msr_t msr = rdmsr(MSR_PKG_POWER_LIMIT);
-		mchbar_write32(MCH_PKG_POWER_LIMIT_LO, msr.lo);
-		mchbar_write32(MCH_PKG_POWER_LIMIT_HI, msr.hi);
-	}
+	msr_t pkg_limit = rdmsr(MSR_PKG_POWER_LIMIT);
+	mchbar_write32(MCH_PKG_POWER_LIMIT_LO, pkg_limit.lo);
+	mchbar_write32(MCH_PKG_POWER_LIMIT_HI, pkg_limit.hi); 
 
 	/* Set here before graphics PM init */
 	mchbar_write32(PAVP_MSG, 0x00100001);

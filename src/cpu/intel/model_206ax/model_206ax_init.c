@@ -222,7 +222,12 @@ static void configure_c_states(struct device *dev)
 
 		msr = rdmsr(MSR_POWER_CTL);
 		msr.lo |= (1 << 18);	// Enable Energy Perf Bias MSR 0x1b0
-		msr.lo |= (1 << 1);	// C1E Enable
+		if (CONFIG(DISABLE_C1E)) {
+			msr.lo &= ~(1 << 1);	/* C1E Disable */
+			printk(BIOS_INFO, "C1E disabled\n");
+		} else {
+			msr.lo |= (1 << 1);	/* C1E Enable */
+		}
 		msr.lo |= (1 << 0);	// Bi-directional PROCHOT#
 		wrmsr(MSR_POWER_CTL, msr);
 

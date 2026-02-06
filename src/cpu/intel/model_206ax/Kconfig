@@ -102,4 +102,18 @@ config TURBO_RATIO_LIMIT_4C
 	  Turbo ratio multiplier when 4 cores are active (e.g. 39 = 3.9 GHz).
 	  Default of 39 is conservative for an i7-2600K at stock voltage.
 
+config DISABLE_C1E
+	bool "Disable C1E enhanced idle state"
+	default n
+	help
+	  Disable C1E (Enhanced C1) auto-promotion in MSR_POWER_CTL.
+	  C1E adds ~10-20us wake-up latency vs ~1-2us for plain C1
+	  by autonomously dropping core voltage and frequency during
+	  idle.
+
+	  Select this for latency-sensitive workloads such as gaming
+	  or real-time audio.  Plain C1 clock-gating still provides
+	  idle power savings with near-zero wake-up penalty.
+
+
 endif

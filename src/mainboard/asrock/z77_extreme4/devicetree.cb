@@ -12,6 +12,9 @@ chip northbridge/intel/sandybridge
 		register "pl2_mw" = "200000"
 		register "pl2_clamp" = "1"
 
+		# PP0 vCore current limit: 130A (ISL6367 4-phase VRM capability)
+		register "pp0_current_limit" = "130"
+
 		device cpu_cluster 0 on end
 	end
 

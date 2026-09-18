@@ -73,8 +73,9 @@ unsigned long northbridge_write_acpi_tables(const struct device *const dev,
 {
 	/* Create DMAR table only if we have VT-d capability. */
 	const u32 capid0_a = pci_read_config32(dev, CAPID0_A);
-	if (capid0_a & VTD_DISABLE)
+	if ((capid0_a & VTD_DISABLE) || CONFIG(DISABLE_HASWELL_VTD)) {
 		return current;
+	}
 
 	acpi_dmar_t *const dmar = (acpi_dmar_t *)current;
 	printk(BIOS_DEBUG, "ACPI:    * DMAR\n");

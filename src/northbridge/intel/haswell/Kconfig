@@ -45,6 +45,11 @@ config USE_BROADWELL_MRC
 	  workaround for some of these limitations is to use Broadwell
 	  MRC.bin instead.
 
+config DISABLE_HASWELL_VTD
+	bool "Disable IOMMU"
+	help
+	  Disable IOMMU for UEFI boot payloads.
+
 config VBOOT
 	select VBOOT_MUST_REQUEST_DISPLAY
 	select VBOOT_STARTS_IN_ROMSTAGE if !HASWELL_VBOOT_IN_BOOTBLOCK

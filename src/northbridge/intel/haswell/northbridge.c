@@ -315,7 +315,7 @@ static void mc_read_resources(struct device *dev)
 	mc_add_fixed_mmio_resources(dev);
 
 	/* Add VT-d MMIO resources, if capable */
-	if (vtd_capable) {
+	if (vtd_capable && !CONFIG(DISABLE_HASWELL_VTD)) {
 		mmio_range(dev, index++, GFXVT_BASE_ADDRESS, GFXVT_BASE_SIZE);
 		mmio_range(dev, index++, VTVC0_BASE_ADDRESS, VTVC0_BASE_SIZE);
 	}

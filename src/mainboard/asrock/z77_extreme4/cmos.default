@@ -6,3 +6,5 @@ nmi=Disable
 power_on_after_fail=Disable
 sata_mode=AHCI
 gfx_uma_size=64M
+oc_profile_safe=Disable
+oc_profile_fail=0

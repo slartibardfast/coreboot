@@ -2,6 +2,7 @@
 
 chip northbridge/intel/sandybridge
 	register "spd_addresses" = "{0x50, 0x51, 0x52, 0x53}"
+	register "max_mem_clock_mhz" = "800"
 
 	chip cpu/intel/model_206ax
 		# PL1 (sustained): 165W — NH-D14 sustained limit

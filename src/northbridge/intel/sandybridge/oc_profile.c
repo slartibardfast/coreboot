@@ -2,6 +2,7 @@
 
 #include <cbfs.h>
 #include <console/console.h>
+#include <option.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -9,7 +10,7 @@
 
 static struct oc_memory_profile profile;
 static bool loaded;
-static bool valid;
+static bool used;
 
 static uint16_t profile_checksum(const struct oc_memory_profile *p)
 {
@@ -28,8 +29,11 @@ static uint16_t profile_checksum(const struct oc_memory_profile *p)
 const struct oc_memory_profile *oc_profile_get(void)
 {
 	if (loaded)
-		return valid ? &profile : NULL;
+		return used ? &profile : NULL;
 	loaded = true;
+
+	if (!CONFIG(NATIVE_RAMINIT_OC_PROFILE))
+		return NULL;
 
 	size_t size = 0;
 	void *mapped = cbfs_map(OC_PROFILE_NAME, &size);
@@ -45,11 +49,30 @@ const struct oc_memory_profile *oc_profile_get(void)
 		return NULL;
 	}
 
-	valid = true;
+	if (get_uint_option("oc_profile_safe", 0)) {
+		printk(BIOS_WARNING, "OC profile: safe mode is set, using the automatic path\n");
+		return NULL;
+	}
+
+	const unsigned int fails = get_uint_option("oc_profile_fail", 0);
+	if (fails >= OC_PROFILE_RETRY_LIMIT) {
+		printk(BIOS_WARNING, "OC profile: %u failed boot(s), skipping the profile\n", fails);
+		set_uint_option("oc_profile_fail", 0);
+		return NULL;
+	}
+	set_uint_option("oc_profile_fail", fails + 1);
+
 	printk(BIOS_INFO, "OC profile: %u mV, %u MHz, tCL %u tRCD %u tRP %u tRAS %u "
 	       "tRFC %u, command rate %u\n", profile.voltage_mv, profile.max_mem_clock_mhz,
 	       profile.tcl, profile.trcd, profile.trp, profile.tras, profile.trfc,
 	       profile.cmd_rate);
 
+	used = true;
 	return &profile;
+}
+
+void oc_profile_boot_ok(void)
+{
+	if (used)
+		set_uint_option("oc_profile_fail", 0);
 }

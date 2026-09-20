@@ -13,7 +13,7 @@ ramstage-y += acpi.c
 
 romstage-y += memmap.c
 
-romstage-$(CONFIG_NATIVE_RAMINIT_OC_PROFILE) += oc_profile.c
+romstage-y += oc_profile.c
 
 ramstage-y += common.c
 romstage-y += common.c

@@ -10,6 +10,9 @@
 #define OC_PROFILE_VERSION	1
 #define OC_PROFILE_NAME		"oc_memory_profile.bin"
 
+/* Failed boots tolerated before the profile is skipped automatically. */
+#define OC_PROFILE_RETRY_LIMIT	2
+
 /*
  * A preprogrammed memory profile, read from CBFS when
  * CONFIG(NATIVE_RAMINIT_OC_PROFILE) is set.  A zero field leaves that value to
@@ -35,5 +38,8 @@ struct oc_memory_profile {
 
 /* Returns the validated profile, or NULL when there is none. */
 const struct oc_memory_profile *oc_profile_get(void);
+
+/* Clears the failed-boot counter after a successful memory training. */
+void oc_profile_boot_ok(void);
 
 #endif /* NORTHBRIDGE_INTEL_SANDYBRIDGE_OC_PROFILE_H */

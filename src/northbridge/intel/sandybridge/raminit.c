@@ -539,6 +539,9 @@ static void init_dram_ddr3(bool s3resume, const u32 cpuid)
 	if (err)
 		die("raminit failed");
 
+	/* A profile that trained successfully has earned a cleared counter. */
+	oc_profile_boot_ok();
+
 	/* FIXME: should be hardware revision-dependent. The register only exists on IVB. */
 	mchbar_write32(CHANNEL_HASH, 0x00a030ce);
 

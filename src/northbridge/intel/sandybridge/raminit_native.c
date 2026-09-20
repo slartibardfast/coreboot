@@ -15,6 +15,7 @@
 
 #include "sandybridge.h"
 #include "raminit_common.h"
+#include "oc_profile.h"
 #include "raminit_tables.h"
 
 #define SNB_MIN_DCLK_133_MULT	3
@@ -269,25 +270,31 @@ static unsigned int get_mem_min_tck(void)
 	u32 reg32;
 	u8 rev;
 	const struct northbridge_intel_sandybridge_config *cfg = NULL;
+	const struct oc_memory_profile *oc = oc_profile_get();
+	u16 max_mem_clock_mhz;
 
 	/* Actually, config of MCH or Host Bridge */
 	cfg = config_of_soc();
 
-	/* If non-zero, it was set in the devicetree */
-	if (cfg->max_mem_clock_mhz) {
-		if (cfg->max_mem_clock_mhz >= 1066)
+	/* The preprogrammed profile wins over the devicetree. */
+	max_mem_clock_mhz = oc && oc->max_mem_clock_mhz ? oc->max_mem_clock_mhz
+							: cfg->max_mem_clock_mhz;
+
+	/* If non-zero, it was set in the devicetree or the profile */
+	if (max_mem_clock_mhz) {
+		if (max_mem_clock_mhz >= 1066)
 			return TCK_1066MHZ;
 
-		else if (cfg->max_mem_clock_mhz >= 933)
+		else if (max_mem_clock_mhz >= 933)
 			return TCK_933MHZ;
 
-		else if (cfg->max_mem_clock_mhz >= 800)
+		else if (max_mem_clock_mhz >= 800)
 			return TCK_800MHZ;
 
-		else if (cfg->max_mem_clock_mhz >= 666)
+		else if (max_mem_clock_mhz >= 666)
 			return TCK_666MHZ;
 
-		else if (cfg->max_mem_clock_mhz >= 533)
+		else if (max_mem_clock_mhz >= 533)
 			return TCK_533MHZ;
 
 		else
@@ -339,6 +346,8 @@ static void find_cas_tck(ramctr_timing *ctrl)
 	u32 reg32;
 	u8 ref_100mhz_support;
 	const struct northbridge_intel_sandybridge_config *cfg = config_of_soc();
+	const struct oc_memory_profile *oc = oc_profile_get();
+	const u8 forced_tcl = oc && oc->tcl ? oc->tcl : cfg->tcl;
 
 	/* 100 MHz reference clock supported */
 	reg32 = pci_read_config32(HOST_BRIDGE, CAPID0_B);
@@ -360,11 +369,11 @@ static void find_cas_tck(ramctr_timing *ctrl)
 		if (!(ctrl->tCK))
 			die("Couldn't find compatible clock / CAS settings\n");
 
-		if (cfg->tcl) {
-			if (cfg->tcl < MIN_CAS || cfg->tcl > MAX_CAS ||
-			    !((ctrl->cas_supported >> (cfg->tcl - MIN_CAS)) & 1))
-				die("Forced CAS %u is not supported by the DIMMs\n", cfg->tcl);
-			val = cfg->tcl;
+		if (forced_tcl) {
+			if (forced_tcl < MIN_CAS || forced_tcl > MAX_CAS ||
+			    !((ctrl->cas_supported >> (forced_tcl - MIN_CAS)) & 1))
+				die("Forced CAS %u is not supported by the DIMMs\n", forced_tcl);
+			val = forced_tcl;
 		} else {
 			val = DIV_ROUND_UP(ctrl->tAA, ctrl->tCK);
 		}
@@ -523,17 +532,24 @@ static void dram_timing(ramctr_timing *ctrl)
 	ctrl->tWTR = DIV_ROUND_UP(ctrl->tWTR, ctrl->tCK);
 	ctrl->tRFC = DIV_ROUND_UP(ctrl->tRFC, ctrl->tCK);
 
-	/* Devicetree overrides, in clock cycles (0 = keep the SPD value). */
-	if (cfg->trcd)
-		ctrl->tRCD = cfg->trcd;
-	if (cfg->trp)
-		ctrl->tRP = cfg->trp;
-	if (cfg->tras)
-		ctrl->tRAS = cfg->tras;
-	if (cfg->trfc)
-		ctrl->tRFC = cfg->trfc;
-	if (cfg->nmode)
-		ctrl->tCMD = cfg->nmode * 256;
+	/* Profile overrides win over the devicetree; 0 keeps the SPD value. */
+	const struct oc_memory_profile *oc = oc_profile_get();
+	const u8 trcd = oc && oc->trcd ? oc->trcd : cfg->trcd;
+	const u8 trp = oc && oc->trp ? oc->trp : cfg->trp;
+	const u8 tras = oc && oc->tras ? oc->tras : cfg->tras;
+	const u16 trfc = oc && oc->trfc ? oc->trfc : cfg->trfc;
+	const u8 cmd_rate = oc && oc->cmd_rate ? oc->cmd_rate : cfg->nmode;
+
+	if (trcd)
+		ctrl->tRCD = trcd;
+	if (trp)
+		ctrl->tRP = trp;
+	if (tras)
+		ctrl->tRAS = tras;
+	if (trfc)
+		ctrl->tRFC = trfc;
+	if (cmd_rate)
+		ctrl->tCMD = cmd_rate * 256;
 
 	ctrl->tREFI     =     get_REFI(ctrl->FRQ, ctrl->base_freq);
 	ctrl->tMOD      =      get_MOD(ctrl->FRQ, ctrl->base_freq);

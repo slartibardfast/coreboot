@@ -89,6 +89,17 @@ config NATIVE_RAMINIT_IGNORE_XMP_REQUESTED_VOLTAGE
 	  specification. Consider this to be an overclocking option.
 	  Handle with care!
 
+config NATIVE_RAMINIT_OC_PROFILE
+	bool "Read a memory overclocking profile from CBFS"
+	default n
+	depends on USE_NATIVE_RAMINIT
+	help
+	  Read a preprogrammed memory profile, oc_memory_profile.bin, from CBFS
+	  and apply its timings, memory clock and DRAM voltage.  A valid profile
+	  also skips the XMP acceptance rules and the automatic voltage cap; the
+	  voltage is still clamped to the board's documented range.  Handle with
+	  care!
+
 config NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY
 	bool "Adjust DRAM voltage automatically based on SPD and XMP data"
 	default y

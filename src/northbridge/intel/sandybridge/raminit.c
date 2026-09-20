@@ -21,6 +21,7 @@
 
 #include "raminit.h"
 #include "raminit_common.h"
+#include "oc_profile.h"
 #include "sandybridge.h"
 #include "chip.h"
 
@@ -262,8 +263,15 @@ static void dram_find_spds_ddr3(spd_ddr3_raw_data *spd, ramctr_timing *ctrl)
 	ctrl->auto_self_refresh = 1;
 
 	if (CONFIG(MAINBOARD_HAS_ADJUSTABLE_DRAM_VOLTAGE)) {
+		const struct oc_memory_profile *oc = oc_profile_get();
+
 		printk(BIOS_DEBUG, "Mainboard has adjustable DRAM voltage. ");
-		if (CONFIG(NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY)) {
+		if (oc && oc->voltage_mv) {
+			ctrl->voltage_mv = MIN(MAX(oc->voltage_mv,
+						   CONFIG_MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE),
+					       CONFIG_MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE);
+			printk(BIOS_INFO, "OC profile: DRAM voltage %i mV.\n", ctrl->voltage_mv);
+		} else if (CONFIG(NATIVE_RAMINIT_SET_DRAM_VOLTAGE_AUTOMATICALLY)) {
 			ctrl->voltage_mv = dram_find_highest_common_voltage(spd);
 			printk(BIOS_DEBUG, "Selected %i mV automatically.\n", ctrl->voltage_mv);
 		} else {
@@ -301,7 +309,7 @@ static void dram_find_spds_ddr3(spd_ddr3_raw_data *spd, ramctr_timing *ctrl)
 				printram("No valid XMP profile found.\n");
 				spd_decode_ddr3(dimm, spd[spd_slot]);
 
-			} else if (ch_dimms > dimm->dimms_per_channel) {
+			} else if (!oc_profile_get() && ch_dimms > dimm->dimms_per_channel) {
 				printram(
 				"XMP profile supports %u DIMMs, but %u DIMMs are installed.\n",
 					dimm->dimms_per_channel, ch_dimms);
@@ -312,7 +320,7 @@ static void dram_find_spds_ddr3(spd_ddr3_raw_data *spd, ramctr_timing *ctrl)
 				else
 					spd_decode_ddr3(dimm, spd[spd_slot]);
 
-			} else if (dimm->voltage > ctrl->voltage_mv) {
+			} else if (!oc_profile_get() && dimm->voltage > ctrl->voltage_mv) {
 				printram("XMP profile's requested %u mV is above maximum (%i mV).\n",
 						 dimm->voltage, ctrl->voltage_mv);
 

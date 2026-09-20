@@ -1,0 +1,10 @@
+# The coreboot component's source is upstream's, governed by upstream's own
+# conventions. The host's naming audit covers the host's authored content, so
+# the component tree is excluded here; commit messages are still checked by the
+# commit-msg hook.
+src/
+util/
+payloads/
+Documentation/
+configs/
+3rdparty/

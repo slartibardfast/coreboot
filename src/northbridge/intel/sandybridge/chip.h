@@ -51,6 +51,16 @@ struct northbridge_intel_sandybridge_config {
 	/* PEI data for RAM init and early silicon init */
 	u8 ts_addresses[4];
 
+	/* Optional memory timing overrides in clock cycles (0 = auto from SPD). */
+	u8 tcl;
+	u8 trcd;
+	u8 trp;
+	u8 tras;
+	u16 trfc;
+
+	/* Optional DRAM rail voltage in millivolts (0 = board default). */
+	u16 dram_voltage_mv;
+
 	bool ec_present;
 	bool ddr3lv_support;
 

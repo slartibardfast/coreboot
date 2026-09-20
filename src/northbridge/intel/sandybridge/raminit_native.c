@@ -338,6 +338,7 @@ static void find_cas_tck(ramctr_timing *ctrl)
 	u8 val;
 	u32 reg32;
 	u8 ref_100mhz_support;
+	const struct northbridge_intel_sandybridge_config *cfg = config_of_soc();
 
 	/* 100 MHz reference clock supported */
 	reg32 = pci_read_config32(HOST_BRIDGE, CAPID0_B);
@@ -359,7 +360,14 @@ static void find_cas_tck(ramctr_timing *ctrl)
 		if (!(ctrl->tCK))
 			die("Couldn't find compatible clock / CAS settings\n");
 
-		val = DIV_ROUND_UP(ctrl->tAA, ctrl->tCK);
+		if (cfg->tcl) {
+			if (cfg->tcl < MIN_CAS || cfg->tcl > MAX_CAS ||
+			    !((ctrl->cas_supported >> (cfg->tcl - MIN_CAS)) & 1))
+				die("Forced CAS %u is not supported by the DIMMs\n", cfg->tcl);
+			val = cfg->tcl;
+		} else {
+			val = DIV_ROUND_UP(ctrl->tAA, ctrl->tCK);
+		}
 		printk(BIOS_DEBUG, "Trying CAS %u, tCK %u.\n", val, ctrl->tCK);
 		for (; val <= MAX_CAS; val++)
 			if ((ctrl->cas_supported >> (val - MIN_CAS)) & 1)
@@ -384,6 +392,8 @@ static void find_cas_tck(ramctr_timing *ctrl)
 
 static void dram_timing(ramctr_timing *ctrl)
 {
+	const struct northbridge_intel_sandybridge_config *cfg = config_of_soc();
+
 	/*
 	 * On Sandy Bridge, the maximum supported DDR3 frequency is 1066MHz (DDR3 2133).
 	 * Cap it for faster DIMMs, and align it to the closest JEDEC standard frequency.
@@ -512,6 +522,18 @@ static void dram_timing(ramctr_timing *ctrl)
 	ctrl->tRTP = DIV_ROUND_UP(ctrl->tRTP, ctrl->tCK);
 	ctrl->tWTR = DIV_ROUND_UP(ctrl->tWTR, ctrl->tCK);
 	ctrl->tRFC = DIV_ROUND_UP(ctrl->tRFC, ctrl->tCK);
+
+	/* Devicetree overrides, in clock cycles (0 = keep the SPD value). */
+	if (cfg->trcd)
+		ctrl->tRCD = cfg->trcd;
+	if (cfg->trp)
+		ctrl->tRP = cfg->trp;
+	if (cfg->tras)
+		ctrl->tRAS = cfg->tras;
+	if (cfg->trfc)
+		ctrl->tRFC = cfg->trfc;
+	if (cfg->nmode)
+		ctrl->tCMD = cfg->nmode * 256;
 
 	ctrl->tREFI     =     get_REFI(ctrl->FRQ, ctrl->base_freq);
 	ctrl->tMOD      =      get_MOD(ctrl->FRQ, ctrl->base_freq);

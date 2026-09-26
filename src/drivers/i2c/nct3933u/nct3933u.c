@@ -32,17 +32,14 @@ enum cb_err nct3933u_set_voltage(const struct device *const dev, int voltage_mv)
 
 	/* Get board-specific voltage constants from devicetree */
 	const struct drivers_i2c_nct3933u_config *cfg = dev->chip_info;
-	int default_uv = 1000 * cfg->default_mv[channel - 1];
-	int step_uv = cfg->step_uv[channel - 1];
+	uint8_t reg8;
+	enum cb_err err;
 
-	int offset = (voltage_mv * 1000 - default_uv) / step_uv;
-
-	/* Make sure the requested voltage is within the possible range */
-	if ((offset > 127) || (offset < -127))
-		return CB_ERR;
-
-	/* Convert to sign-magnitude format used by the chip */
-	const uint8_t reg8 = (offset < 0) ? (-offset | 0x80) : offset;
+	err = nct3933u_encode_voltage(cfg->default_mv[channel - 1],
+				      cfg->step_uv[channel - 1],
+				      voltage_mv, &reg8);
+	if (err != CB_SUCCESS)
+		return err;
 
 	return do_smbus_write_byte(smbus_base(), i2c_address, channel, reg8);
 }

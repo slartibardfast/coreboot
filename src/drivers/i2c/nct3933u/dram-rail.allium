@@ -1,0 +1,291 @@
+-- allium: 3
+-- dram-rail.allium
+--
+-- Scope: the DDR3 supply rail of the ASRock Z77 Extreme4 coreboot port, as
+-- programmed through the NCT3933U current DAC on the PCH SMBus.
+-- Includes: the rail request lifecycle (selection, clamping, DAC encoding,
+--   programmed or refused), the installed-DIMM population evidence decoded
+--   from SPD, and the automatic selection over that population.
+-- Excludes:
+--   - SMBus transport mechanics (the PCH host controller is external)
+--   - The CPU PLL, VTT and PCH rails of the same chip (other channels,
+--     switched off in the board devicetree)
+--   - Memory training and timing selection (raminit's own behaviour)
+--   - S3 resume (the rail is programmed on every boot that is not a resume;
+--     the resume path reuses the setting preserved in the silicon)
+-- Depends: the OC memory profile voltage field, one of the request sources.
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+value DacProgram {
+    offset: Integer
+    byte: Integer
+    rail_mv: Integer
+}
+
+------------------------------------------------------------
+-- Contracts
+------------------------------------------------------------
+
+contract DacEncoding {
+    encode: (anchor_mv: Integer, step_mv: Integer, request_mv: Integer) -> DacProgram?
+
+    @invariant SignMagnitude
+        -- The byte on the wire carries the signed step offset in
+        -- sign-magnitude form: bit 7 set together with the magnitude for a
+        -- downward offset, the plain magnitude otherwise.
+
+    @invariant GridRounding
+        -- A request between two grid points resolves to the grid point
+        -- between it and the anchor; the delivered rail never differs from
+        -- the request by a full step or more.
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum RailSource { profile | automatic }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- One installed DIMM's operating-voltage evidence, as decoded from its SPD
+-- data by raminit.
+entity DimmEvidence {
+    operable_1_25_v: Boolean
+    operable_1_35_v: Boolean
+    xmp_voltage_mv: Integer?
+
+    -- The operating floor one DIMM contributes to its population, following
+    -- the SPD operating-voltage bits: a DIMM operable at 1.25 V contributes
+    -- that floor, a DIMM operable only at 1.35 V contributes that floor, and
+    -- a plain DDR3 DIMM raises the population to the JEDEC maximum.
+    floor_contribution_mv:
+        if operable_1_25_v: config.ddr3l_low_mv
+        else if operable_1_35_v: config.ddr3l_mv
+        else: config.jedec_mv
+}
+
+-- The installed DIMMs of one boot, as one population, and the voltage the
+-- automatic path selects for it.
+entity Population {
+    -- True once any installed DIMM ships no XMP data.
+    plain_dimm_present: Boolean
+
+    -- The highest floor any DIMM imposes, floored at the automatic minimum.
+    floor_mv: Integer
+
+    -- The lowest XMP-requested voltage across the population, absent when no
+    -- DIMM ships XMP data.
+    xmp_requested_mv: Integer?
+
+    -- The voltage the automatic path selects for this population: the JEDEC
+    -- common denominator when a plain DIMM is installed, otherwise the XMP
+    -- request when one is usable, otherwise the population floor.
+    selection_mv: Integer
+
+    invariant SelectionAtLeastFloor {
+        selection_mv >= floor_mv
+    }
+
+    invariant SelectionWithinAutoLimits {
+        selection_mv >= config.auto_min_mv and selection_mv <= config.auto_max_mv
+    }
+}
+
+-- One request to place the DRAM rail at a setpoint, from either the OC
+-- memory profile or the automatic path.
+entity RailRequest {
+    voltage_mv: Integer
+    source: RailSource
+    state: requested | resolved | programmed | refused
+    resolved_mv: Integer when state = resolved | programmed | refused
+    program: DacProgram when state = programmed
+
+    transitions state {
+        requested -> resolved
+        resolved -> programmed
+        resolved -> refused
+        terminal: programmed, refused
+    }
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- The DAC anchor: the rail voltage at offset zero, and its step in
+    -- millivolts. The register accepts signed offsets within the span, so
+    -- the reachable rail is rail_min_mv to rail_max_mv.
+    anchor_mv: Integer = 1600
+    step_mv: Integer = 5
+    max_offset: Integer = 127
+    rail_min_mv: Integer = 965
+    rail_max_mv: Integer = 2235
+
+    -- JEDEC DDR3 operating voltages the SPD bits distinguish.
+    jedec_mv: Integer = 1500
+    ddr3l_mv: Integer = 1350
+    ddr3l_low_mv: Integer = 1250
+
+    -- The board's documented rail span (the unlocked range). The vendor
+    -- setup exposes a ladder inside it, from vendor_min_mv to vendor_max_mv
+    -- in step_mv increments; the automatic path keeps its own narrower
+    -- safety limits.
+    board_min_mv: Integer = 965
+    board_max_mv: Integer = 2235
+    vendor_min_mv: Integer = 1165
+    vendor_max_mv: Integer = 1800
+    auto_min_mv: Integer = 1250
+    auto_max_mv: Integer = 1650
+}
+
+------------------------------------------------------------
+-- Defaults
+------------------------------------------------------------
+
+default Population board = {
+    plain_dimm_present: false
+    floor_mv: config.auto_min_mv
+    xmp_requested_mv: null
+    selection_mv: config.auto_min_mv
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- Raminit decodes one installed DIMM's SPD data into population evidence.
+rule DimmSampled {
+    when: SpdSampled(operable_1_25_v, operable_1_35_v, xmp_voltage_mv?)
+    ensures: DimmEvidence.created(
+        operable_1_25_v: operable_1_25_v,
+        operable_1_35_v: operable_1_35_v,
+        xmp_voltage_mv: xmp_voltage_mv
+    )
+}
+
+-- The population is re-derived from every DIMM sampled so far: a plain DDR3
+-- DIMM (no operating-voltage bit) raises it to the JEDEC maximum.
+rule PopulationRecomputed {
+    when: evidence: DimmEvidence.created
+    ensures:
+        board.plain_dimm_present = DimmEvidences.any(e => e.xmp_voltage_mv = null)
+        board.floor_mv =
+            if DimmEvidences.any(e => not e.operable_1_25_v and not e.operable_1_35_v):
+                config.jedec_mv
+            else if DimmEvidences.count = 0: config.auto_min_mv
+            else: max(config.auto_min_mv,
+                      max_by(DimmEvidences, e => e.floor_contribution_mv).floor_contribution_mv)
+        board.xmp_requested_mv =
+            min_by(DimmEvidences where xmp_voltage_mv != null,
+                   e => e.xmp_voltage_mv)?.xmp_voltage_mv
+        board.selection_mv =
+            if board.plain_dimm_present: config.jedec_mv
+            else if board.xmp_requested_mv = null: board.floor_mv
+            else if board.xmp_requested_mv > config.auto_max_mv: board.floor_mv
+            else: max(board.floor_mv, board.xmp_requested_mv)
+}
+
+-- Raminit asks for a rail setpoint: a profile voltage or the automatic
+-- selection. The request is recorded with its source before it resolves.
+rule RequestRecorded {
+    when: RailVoltageRequested(voltage_mv, source)
+    ensures: RailRequest.created(voltage_mv: voltage_mv, source: source, state: requested)
+}
+
+-- A memory-profile request resolves clamped into the board's documented
+-- rail span.
+rule ProfileRequestResolved {
+    when: request: RailRequest.created
+    requires: request.source = profile
+    ensures:
+        request.state = resolved
+        request.resolved_mv = min(max(request.voltage_mv, config.board_min_mv),
+                                  config.board_max_mv)
+}
+
+-- An automatic request resolves to the population's selected voltage.
+rule AutomaticRequestResolved {
+    when: request: RailRequest.created
+    requires: request.source = automatic
+    ensures:
+        request.state = resolved
+        request.resolved_mv = board.selection_mv
+}
+
+-- A resolved request inside the DAC span programs the rail: the register
+-- carries the step offset from the anchor in sign-magnitude form, and the
+-- delivered rail sits on the grid.
+rule RailProgrammed {
+    when: request: RailRequest.state transitions_to resolved
+    requires: request.resolved_mv >= config.rail_min_mv
+    requires: request.resolved_mv <= config.rail_max_mv
+    let offset = (request.resolved_mv - config.anchor_mv) / config.step_mv
+    ensures:
+        request.state = programmed
+        request.program = {
+            offset: offset,
+            byte: if offset < 0: 128 - offset else: offset,
+            rail_mv: config.anchor_mv + offset * config.step_mv
+        }
+
+    @guidance
+        -- The write goes over the PCH SMBus to the DAC at device 0x15,
+        -- channel 3. Integer division truncates toward the anchor, so a
+        -- request between grid points programs the nearer grid point.
+}
+
+-- A resolved request outside the DAC span is refused and leaves the rail at
+-- its previous setting.
+rule RailRequestRefused {
+    when: request: RailRequest.state transitions_to resolved
+    requires: request.resolved_mv < config.rail_min_mv
+    requires: request.resolved_mv > config.rail_max_mv
+    ensures: request.state = refused
+
+    @guidance
+        -- The requester is told the rail cannot reach the setpoint; the
+        -- silicon keeps whatever the last successful program left.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant DacSpanMatchesBoard {
+    config.rail_min_mv = config.anchor_mv - config.max_offset * config.step_mv
+        and config.rail_max_mv = config.anchor_mv + config.max_offset * config.step_mv
+}
+
+invariant VendorLadderWithinBoardSpan {
+    config.vendor_min_mv >= config.board_min_mv
+        and config.vendor_max_mv <= config.board_max_mv
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+surface RailControl {
+    provides:
+        SpdSampled(operable_1_25_v: Boolean, operable_1_35_v: Boolean, xmp_voltage_mv: Integer?)
+        RailVoltageRequested(voltage_mv: Integer, source: RailSource)
+}
+
+surface RailReadback {
+    context request: RailRequest where state = programmed
+
+    exposes:
+        request.program.byte
+        request.program.rail_mv
+
+    @guarantee WireByteReadable
+        -- The programmed register byte is readable back over the SMBus, so
+        -- a measurement pass can confirm the setpoint without powering down.
+}

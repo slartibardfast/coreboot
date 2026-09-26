@@ -1,0 +1,30 @@
+name: allium
+
+# The DRAM rail spec lane (dram-rail.allium): the first allium spec in this
+# fork. The obligations manifest is dispositioned host-side; this lane runs
+# the spec checks and the theft property tests.
+
+on:
+  push:
+    branches: [experiments/z77-mem-oc]
+  pull_request:
+
+jobs:
+  dram-rail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pin allium-cli
+        run: cargo install allium-cli --version 3.2.4 --locked
+
+      - name: Check and analyse the spec
+        run: |
+          allium check src/drivers/i2c/nct3933u/dram-rail.allium
+          allium analyse src/drivers/i2c/nct3933u/dram-rail.allium
+          allium plan src/drivers/i2c/nct3933u/dram-rail.allium > /dev/null
+
+      - name: Property tests under theft
+        run: tests/dram-rail/run-dram-rail-tests.sh

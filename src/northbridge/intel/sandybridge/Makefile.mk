@@ -22,6 +22,7 @@ smm-y += common.c
 romstage-y += raminit_shared.c
 ifeq ($(CONFIG_USE_NATIVE_RAMINIT),y)
 romstage-y += early_dmi.c
+romstage-y += dram_voltage.c
 romstage-y += raminit.c
 romstage-y += raminit_common.c
 romstage-y += raminit_iosav.c

@@ -1,0 +1,77 @@
+# Dispositions for dram-rail.allium's `allium plan` obligations.
+# test:<name> entries resolve against tests/dram-rail/ (the shell functions
+# in run-dram-rail-tests.sh); `structural` marks the obligations the spec's
+# own check/analyse lane discharges. Run with:
+#   host-lifecycle obligations src/drivers/i2c/nct3933u/dram-rail.allium \
+#       --tests tests/dram-rail --strict-discharge
+
+# The DAC encoding contract: the wire byte and its properties.
+value-equality.DacProgram => test:theft_encode_roundtrip exercises=nct3933u_encode_voltage
+entity-fields.DacProgram => structural
+contract-signature.DacEncoding.encode => test:theft_encode_roundtrip exercises=nct3933u_encode_voltage
+enum-comparable.RailSource => structural
+
+# Population evidence and the aggregated population.
+entity-fields.DimmEvidence => structural
+entity-optional.DimmEvidence.xmp_voltage_mv => structural
+entity-fields.Population => structural
+entity-optional.Population.xmp_requested_mv => structural
+
+# The population invariants, over every generated population.
+invariant.Population.SelectionAtLeastFloor => test:theft_population_selection exercises=dram_auto_voltage_mv
+invariant.Population.SelectionWithinAutoLimits => test:theft_population_selection exercises=dram_auto_voltage_mv
+
+# The request lifecycle's state-dependent fields and graph shape.
+when-presence.RailRequest.resolved_mv => structural
+when-presence.RailRequest.program => structural
+transition-rejected.RailRequest.state => structural
+transition-terminal.RailRequest.state => structural
+entity-fields.RailRequest => structural
+
+# The config defaults agree with the sources that carry them.
+config-default.anchor_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.step_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.max_offset => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.rail_min_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.rail_max_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.jedec_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.ddr3l_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.ddr3l_low_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.board_min_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.board_max_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.vendor_min_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.vendor_max_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.auto_min_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+config-default.auto_max_mv => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+
+# Rules: success and precondition-rejection paths.
+rule-success.DimmSampled => test:theft_population_selection exercises=dram_auto_voltage_mv
+rule-entity-creation.DimmSampled.1 => test:theft_population_selection exercises=dram_auto_voltage_mv
+rule-success.PopulationRecomputed => test:theft_population_selection exercises=dram_auto_voltage_mv
+rule-success.RequestRecorded => test:dram_rail_examples exercises=nct3933u_encode_voltage,dram_auto_voltage_mv,dram_clamp_profile_voltage_mv
+rule-entity-creation.RequestRecorded.1 => test:dram_rail_examples exercises=nct3933u_encode_voltage,dram_auto_voltage_mv,dram_clamp_profile_voltage_mv
+rule-success.ProfileRequestResolved => test:theft_profile_clamp exercises=dram_clamp_profile_voltage_mv
+rule-failure.ProfileRequestResolved.1 => test:theft_population_selection exercises=dram_auto_voltage_mv
+rule-success.AutomaticRequestResolved => test:theft_population_selection exercises=dram_auto_voltage_mv
+rule-failure.AutomaticRequestResolved.1 => test:theft_profile_clamp exercises=dram_clamp_profile_voltage_mv
+rule-success.RailProgrammed => test:theft_encode_roundtrip exercises=nct3933u_encode_voltage
+rule-failure.RailProgrammed.1 => test:theft_encode_span exercises=nct3933u_encode_voltage
+rule-failure.RailProgrammed.2 => test:theft_encode_span exercises=nct3933u_encode_voltage
+rule-success.RailRequestRefused => test:theft_encode_span exercises=nct3933u_encode_voltage
+rule-failure.RailRequestRefused.1 => test:theft_encode_roundtrip exercises=nct3933u_encode_voltage
+rule-failure.RailRequestRefused.2 => test:theft_encode_roundtrip exercises=nct3933u_encode_voltage
+
+# The transition edges, witnessed by the rules that produce them.
+transition-edge.RailRequest.requested.resolved => test:theft_profile_clamp exercises=dram_clamp_profile_voltage_mv
+transition-edge.RailRequest.resolved.programmed => test:theft_encode_roundtrip exercises=nct3933u_encode_voltage
+transition-edge.RailRequest.resolved.refused => test:theft_encode_span exercises=nct3933u_encode_voltage
+
+# The config invariants, over the same cross-checked constants.
+invariant.DacSpanMatchesBoard => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+invariant.VendorLadderWithinBoardSpan => test:config_defaults_match_spec exercises=default_mv,step_uv,MAINBOARD_HW_MINIMUM_DRAM_VOLTAGE,MAINBOARD_HW_MAXIMUM_DRAM_VOLTAGE
+
+# Surface shape, checker-covered.
+surface-actor.RailControl => structural
+surface-provides.RailControl => structural
+surface-actor.RailReadback => structural
+surface-exposure.RailReadback => structural

@@ -14,7 +14,7 @@ void bootblock_mainboard_early_init(void)
 		nuvoton_enable_serial(NCT6776_SP1, CONFIG_TTYS0_BASE);
 }
 
-#if ENV_ROMSTAGE
+#if ENV_SEPARATE_ROMSTAGE
 #include <drivers/i2c/isl6367/isl6367.h>
 
 void mainboard_early_init(bool s3resume);
@@ -31,4 +31,4 @@ void mainboard_early_init(bool s3resume)
 			printk(BIOS_WARNING, "ISL6367 vcore settings failed\n");
 	}
 }
-#endif /* ENV_ROMSTAGE */
+#endif /* ENV_SEPARATE_ROMSTAGE */

@@ -23,6 +23,15 @@
    encoder. */
 #define ISL6367_LLC_MAX_VALUE	5
 
+/* The platform-safe envelope the driver enforces on top of the ladder,
+   sized for the i7-2600K (max VID 1.52 V, sustained-safe practice below
+   that): a positive trim of at most 100 mV and a fixed setpoint of at most
+   1.400 V. Negative trims keep the full ladder; undervolting does not
+   degrade silicon. The arithmetic and sources live in
+   docs/z77-platform-safety.md in the governing host repository. */
+#define ISL6367_OFFSET_SAFE_MAX_MV	100
+#define ISL6367_FIX_SAFE_MAX_MV		1400
+
 /* Pure millivolt-to-register mapping for the ISL6367 vcore path. Behaviour
    specified in vcore-encodings.allium (OffsetEncoding, FixedEncoding,
    LoadLineEncoding, OffsetProgrammed, FixedProgrammed,
@@ -50,5 +59,11 @@ void isl6367_decode_fixed(uint8_t reg8, int *voltage_mv);
    1 through 5. */
 enum cb_err isl6367_encode_llc(int stored_value, uint8_t *d3_bits,
 			       uint8_t *d4_bit);
+
+/* The platform-safe envelope checks the driver applies before any write:
+   the full negative ladder plus the capped positive trim, and the fixed
+   setpoint cap. */
+bool isl6367_offset_within_safe(int offset_mv);
+bool isl6367_fixed_within_safe(int voltage_mv);
 
 #endif /* __DRIVERS_I2C_ISL6367_ISL6367_ENCODE_H__ */

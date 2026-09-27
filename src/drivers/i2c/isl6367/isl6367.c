@@ -61,12 +61,26 @@ static enum cb_err isl6367_write_vcore(const int addr,
 	enum cb_err err;
 
 	/* Both setpoints ride one register; the fixed target wins when the
-	   board declares both. */
+	   board declares both. The platform-safe envelope is a hard guard:
+	   a board author's mistake must refuse, not program a dangerous
+	   voltage. */
 	if (cfg->vcore_fix_mv) {
+		if (!isl6367_fixed_within_safe(cfg->vcore_fix_mv)) {
+			printk(BIOS_ERR,
+			       "ISL6367: fixed setpoint %d mV leaves the platform-safe envelope\n",
+			       cfg->vcore_fix_mv);
+			return CB_ERR;
+		}
 		err = isl6367_encode_fixed(cfg->vcore_fix_mv, &reg8);
 		if (err != CB_SUCCESS)
 			return err;
 	} else if (cfg->vcore_offset_mv) {
+		if (!isl6367_offset_within_safe(cfg->vcore_offset_mv)) {
+			printk(BIOS_ERR,
+			       "ISL6367: offset %d mV leaves the platform-safe envelope\n",
+			       cfg->vcore_offset_mv);
+			return CB_ERR;
+		}
 		err = isl6367_encode_offset(cfg->vcore_offset_mv, &reg8);
 		if (err != CB_SUCCESS)
 			return err;

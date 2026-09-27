@@ -180,6 +180,16 @@ config {
     fix_min_mv: Integer = 600
     fix_max_mv: Integer = 1700
 
+    -- The platform-safe envelope the driver enforces on top of the ladder,
+    -- sized for the i7-2600K: the CPU's own VID range tops out at 1.52 V
+    -- and sustained-safe practice sits below that, so a positive trim is
+    -- capped at 100 mV and a fixed setpoint at 1.400 V. Negative trims
+    -- keep the full ladder: undervolting does not degrade the silicon,
+    -- only stability does. The arithmetic and sources live in
+    -- docs/z77-platform-safety.md in the governing host repository.
+    safe_offset_max_mv: Integer = 100
+    safe_fix_max_mv: Integer = 1400
+
     -- The load-line ladder: the setup's stored values 1 through 5; 0 means
     -- leave the silicon untouched.
     llc_max_value: Integer = 5
@@ -220,14 +230,14 @@ rule RequestRecorded {
     ensures: VcoreRequest.created(voltage_mv: voltage_mv, source: source, state: requested)
 }
 
--- An offset request inside the setup ladder's asymmetric span resolves to
--- its value; one outside the span is refused and leaves the silicon
--- untouched.
+-- An offset request inside the safe envelope (the full negative ladder
+-- plus the capped positive trim) resolves to its value; one outside is
+-- refused and leaves the silicon untouched.
 rule OffsetRequestResolved {
     when: request: VcoreRequest.created
     requires: request.source = offset
     requires: request.voltage_mv >= config.offset_min_mv
-    requires: request.voltage_mv <= config.offset_max_mv
+    requires: request.voltage_mv <= config.safe_offset_max_mv
     ensures:
         request.state = resolved
         request.resolved_mv = request.voltage_mv
@@ -237,17 +247,17 @@ rule OffsetRequestRefused {
     when: request: VcoreRequest.created
     requires: request.source = offset
     requires: request.voltage_mv < config.offset_min_mv
-    requires: request.voltage_mv > config.offset_max_mv
+        or request.voltage_mv > config.safe_offset_max_mv
     ensures: request.state = refused
 }
 
--- A fixed request inside the setup ladder's absolute span resolves to its
--- value; one outside is refused.
+-- A fixed request inside the safe envelope resolves to its value; one
+-- outside is refused.
 rule FixedRequestResolved {
     when: request: VcoreRequest.created
     requires: request.source = fixed
     requires: request.voltage_mv >= config.fix_min_mv
-    requires: request.voltage_mv <= config.fix_max_mv
+    requires: request.voltage_mv <= config.safe_fix_max_mv
     ensures:
         request.state = resolved
         request.resolved_mv = request.voltage_mv
@@ -257,7 +267,7 @@ rule FixedRequestRefused {
     when: request: VcoreRequest.created
     requires: request.source = fixed
     requires: request.voltage_mv < config.fix_min_mv
-    requires: request.voltage_mv > config.fix_max_mv
+        or request.voltage_mv > config.safe_fix_max_mv
     ensures: request.state = refused
 }
 
@@ -354,9 +364,17 @@ invariant OffsetLadderAsymmetric {
         and config.offset_max_mv = 120 * config.step_mv
 }
 
+invariant SafeOffsetWithinLadder {
+    config.safe_offset_max_mv <= config.offset_max_mv
+}
+
 invariant FixedLadderWraps {
     config.fix_base_byte
         + (config.fix_max_mv - config.fix_base_mv) / config.step_mv >= 256
+}
+
+invariant SafeFixWithinLadder {
+    config.safe_fix_max_mv <= config.fix_max_mv
 }
 
 invariant MailboxCapIsMillivolts {

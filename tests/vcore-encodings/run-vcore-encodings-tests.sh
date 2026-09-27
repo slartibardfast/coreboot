@@ -59,6 +59,17 @@ theft_llc_levels() {
     done
 }
 
+# exercises=isl6367_offset_within_safe,isl6367_fixed_within_safe
+# The platform-safe envelope on top of the ladder: the full negative ladder
+# plus the capped positive trim, and the fixed setpoint cap.
+theft_safe_envelope() {
+    # property over isl6367_offset_within_safe and isl6367_fixed_within_safe
+    local seed
+    for seed in $SEEDS; do
+        ./vcore_encodings_theft safe "$seed"
+    done
+}
+
 # exercises=oc_mailbox_interface_word,oc_mailbox_data_word
 # The MSR 0x150 mailbox words: pack, re-extract, and the offset cap.
 theft_mailbox_words() {
@@ -69,7 +80,7 @@ theft_mailbox_words() {
     done
 }
 
-# exercises=ISL6367_STEP_MV,ISL6367_OFFSET_MIN_MV,ISL6367_OFFSET_MAX_MV,ISL6367_FIX_BASE_MV,ISL6367_FIX_BASE_BYTE,ISL6367_FIX_MIN_MV,ISL6367_FIX_MAX_MV,ISL6367_LLC_MAX_VALUE,ISL6367_REG_OFFSET_FIX,ISL6367_REG_LLC,ISL6367_REG_LLC_EN,ISL6367_REG_INIT_D1,ISL6367_REG_ARM,ISL6367_REG_INIT_D8,ISL6367_REG_INIT_D9,OC_MAILBOX_MSR,OC_MBOX_CMD_VOLTAGE_FREQ_OVR_READ,OC_MBOX_CMD_VOLTAGE_FREQ_OVR_WRITE,OC_MBOX_PLANE_COUNT,OC_MBOX_OFFSET_CAP_UNITS
+# exercises=ISL6367_STEP_MV,ISL6367_OFFSET_MIN_MV,ISL6367_OFFSET_MAX_MV,ISL6367_OFFSET_SAFE_MAX_MV,ISL6367_FIX_BASE_MV,ISL6367_FIX_BASE_BYTE,ISL6367_FIX_MIN_MV,ISL6367_FIX_MAX_MV,ISL6367_FIX_SAFE_MAX_MV,ISL6367_LLC_MAX_VALUE,ISL6367_REG_OFFSET_FIX,ISL6367_REG_LLC,ISL6367_REG_LLC_EN,ISL6367_REG_INIT_D1,ISL6367_REG_ARM,ISL6367_REG_INIT_D8,ISL6367_REG_INIT_D9,OC_MAILBOX_MSR,OC_MBOX_CMD_VOLTAGE_FREQ_OVR_READ,OC_MBOX_CMD_VOLTAGE_FREQ_OVR_WRITE,OC_MBOX_PLANE_COUNT,OC_MBOX_OFFSET_CAP_UNITS
 # The spec's config defaults agree with the sources that carry them: the
 # encoder headers and the board devicetree.
 config_defaults_match_spec() {
@@ -82,10 +93,12 @@ config_defaults_match_spec() {
     grep -q 'step_mv: Integer = 5' "$spec"
     grep -q 'offset_min_mv: Integer = -300' "$spec"
     grep -q 'offset_max_mv: Integer = 600' "$spec"
+    grep -q 'safe_offset_max_mv: Integer = 100' "$spec"
     grep -q 'fix_base_mv: Integer = 600' "$spec"
     grep -q 'fix_base_byte: Integer = 71' "$spec"
     grep -q 'fix_min_mv: Integer = 600' "$spec"
     grep -q 'fix_max_mv: Integer = 1700' "$spec"
+    grep -q 'safe_fix_max_mv: Integer = 1400' "$spec"
     grep -q 'llc_max_value: Integer = 5' "$spec"
     grep -q 'cpu_addr: Integer = 64' "$spec"
     grep -q 'igpu_addr: Integer = 112' "$spec"
@@ -109,10 +122,12 @@ config_defaults_match_spec() {
     grep -q 'define ISL6367_STEP_MV' "$enc"
     grep -q 'define ISL6367_OFFSET_MIN_MV' "$enc"
     grep -q 'define ISL6367_OFFSET_MAX_MV' "$enc"
+    grep -q 'define ISL6367_OFFSET_SAFE_MAX_MV' "$enc"
     grep -q 'define ISL6367_FIX_BASE_MV' "$enc"
     grep -q 'define ISL6367_FIX_BASE_BYTE' "$enc"
     grep -q 'define ISL6367_FIX_MIN_MV' "$enc"
     grep -q 'define ISL6367_FIX_MAX_MV' "$enc"
+    grep -q 'define ISL6367_FIX_SAFE_MAX_MV' "$enc"
     grep -q 'define ISL6367_LLC_MAX_VALUE' "$enc"
 
     grep -q 'define ISL6367_REG_OFFSET_FIX' "$drv"
@@ -147,6 +162,7 @@ theft_offset_span
 theft_fixed_program
 theft_fixed_span
 theft_llc_levels
+theft_safe_envelope
 theft_mailbox_words
 
 echo "vcore-encodings spec lane: all tests passed"

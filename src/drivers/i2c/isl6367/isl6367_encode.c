@@ -52,3 +52,15 @@ enum cb_err isl6367_encode_llc(int stored_value, uint8_t *d3_bits,
 	*d4_bit = stored_value == 1 ? 0 : 1;
 	return CB_SUCCESS;
 }
+
+bool isl6367_offset_within_safe(int offset_mv)
+{
+	return offset_mv >= ISL6367_OFFSET_MIN_MV &&
+	       offset_mv <= ISL6367_OFFSET_SAFE_MAX_MV;
+}
+
+bool isl6367_fixed_within_safe(int voltage_mv)
+{
+	return voltage_mv >= ISL6367_FIX_MIN_MV &&
+	       voltage_mv <= ISL6367_FIX_SAFE_MAX_MV;
+}

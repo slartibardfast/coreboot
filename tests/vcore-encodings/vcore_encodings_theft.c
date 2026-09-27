@@ -204,6 +204,24 @@ prop_mailbox_words(struct theft *t, void *arg1, void *arg2)
 	return THEFT_TRIAL_PASS;
 }
 
+/* Property: the platform-safe envelope admits the full negative ladder
+ * plus the capped positive trim for offsets, and caps the fixed setpoint
+ * at the platform maximum (the resolve/refuse bounds). */
+static enum theft_trial_res
+prop_safe_envelope(struct theft *t, void *arg1)
+{
+	const int mv = *(int16_t *)arg1;
+
+	(void)t;
+	if (isl6367_offset_within_safe(mv) !=
+	    (mv >= ISL6367_OFFSET_MIN_MV && mv <= ISL6367_OFFSET_SAFE_MAX_MV))
+		FAIL("offset safe check disagrees at %d mV", mv);
+	if (isl6367_fixed_within_safe(mv) !=
+	    (mv >= ISL6367_FIX_MIN_MV && mv <= ISL6367_FIX_SAFE_MAX_MV))
+		FAIL("fixed safe check disagrees at %d mV", mv);
+	return THEFT_TRIAL_PASS;
+}
+
 static bool run_examples(void)
 {
 	uint8_t byte = 0xaa;
@@ -265,6 +283,25 @@ static bool run_examples(void)
 	      isl6367_encode_llc(0, &d3, &d4) == CB_ERR);
 	check("stored value 6 is refused",
 	      isl6367_encode_llc(6, &d3, &d4) == CB_ERR);
+
+	/* The platform-safe envelope: in-ladder but unsafe values refuse
+	 * before any write happens. */
+	check("+100 mV is inside the safe envelope",
+	      isl6367_offset_within_safe(100));
+	check("+105 mV leaves the safe envelope",
+	      !isl6367_offset_within_safe(105));
+	check("-300 mV is inside the safe envelope",
+	      isl6367_offset_within_safe(-300));
+	check("-305 mV leaves the safe envelope",
+	      !isl6367_offset_within_safe(-305));
+	check("1.400 V is inside the safe envelope",
+	      isl6367_fixed_within_safe(1400));
+	check("1.405 V leaves the safe envelope",
+	      !isl6367_fixed_within_safe(1405));
+	check("600 mV is inside the safe envelope",
+	      isl6367_fixed_within_safe(600));
+	check("599 mV leaves the safe envelope",
+	      !isl6367_fixed_within_safe(599));
 
 	/* The mailbox words carry known layouts. */
 	check("interface word packs cmd, plane and run/busy",
@@ -353,6 +390,9 @@ int main(int argc, char **argv)
 			 seed);
 	} else if (strcmp(argv[1], "llc") == 0) {
 		run_prop("llc-levels", prop_llc_levels, 1, span_ptrs, seed);
+	} else if (strcmp(argv[1], "safe") == 0) {
+		run_prop("safe-envelope", prop_safe_envelope, 1, span_ptrs,
+			 seed);
 	} else if (strcmp(argv[1], "mailbox") == 0) {
 		run_prop("mailbox-words", prop_mailbox_words, 2, word_ptrs,
 			 seed);

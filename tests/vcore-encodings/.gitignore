@@ -1,0 +1,4 @@
+vcore_encodings_theft
+vcore_encodings_theft.o
+isl6367_encode.o
+oc_mailbox_encode.o

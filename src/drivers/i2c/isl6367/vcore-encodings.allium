@@ -1,0 +1,388 @@
+-- allium: 3
+-- vcore-encodings.allium
+--
+-- Scope: the CPU core voltage request path of the ASRock Z77 Extreme4
+--   coreboot port, as programmed through the ISL6367 VRM on the PCH SMBus,
+--   and the MSR 0x150 OC mailbox command encoding for the Haswell line.
+-- Includes: the offset and fixed voltage encodings as register round-trips,
+--   the load-line level field mapping, the setpoint bounds, the rail request
+--   lifecycle, and the OC mailbox interface and data word layouts.
+-- Excludes:
+--   - SMBus transport mechanics (the PCH host controller is external)
+--   - The iGPU rail's request sources (the same encodings and registers on
+--     the second controller address)
+--   - SVID negotiation between the CPU and the VRM (external; the offset
+--     trims whatever the CPU commands)
+--   - The vendor's graduated ramp (an implementation choice; the register
+--     carries the final value either way)
+-- Depends: the recovered register map and AXTU's board config, recorded
+--   host-side in docs/z77-vcore-control.md.
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+value RegisterProgram {
+    reg: Integer
+    byte: Integer
+}
+
+value LlcProgram {
+    d3_bits: Integer
+    d4_bit: Integer
+}
+
+------------------------------------------------------------
+-- Contracts
+------------------------------------------------------------
+
+contract OffsetEncoding {
+    encode: (offset_mv: Integer) -> Integer?
+
+    @invariant TwosComplementSteps
+        -- The register byte carries the offset in signed 5 mV steps as an
+        -- 8-bit two's complement: 0x01 is +5 mV, 0xFF is -5 mV, 0xC4 is
+        -- -300 mV, 0x78 is +600 mV.
+
+    @invariant RoundTrip
+        -- Decoding the programmed byte back into steps yields the same
+        -- steps the request encoded.
+}
+
+contract FixedEncoding {
+    encode: (voltage_mv: Integer) -> Integer?
+
+    @invariant AbsoluteVidByte
+        -- The register byte is the absolute VID: 0x47 at 0.600 V, one per
+        -- 5 mV, wrapping modulo 256 at the top of the ladder.
+
+    @invariant RoundTrip
+        -- Decoding the programmed byte back into millivolts yields the same
+        -- voltage the request encoded.
+}
+
+contract LoadLineEncoding {
+    encode: (stored_value: Integer) -> LlcProgram?
+
+    @invariant InvertedField
+        -- Bits 1:0 of the load-line register carry the stored value
+        -- inverted: 2 = 0b11, 3 = 0b10, 4 = 0b01, 5 = 0b00. The strongest
+        -- setting (stored value 1) is a separate mode: it clears bit 0 of
+        -- the enable register and leaves the field at 0b00.
+
+    @invariant RoundTrip
+        -- Decoding the programmed field pair back into a stored value
+        -- yields the value the request encoded.
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+enum VcoreSource { offset | fixed }
+
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
+
+-- One request to trim or fix the CPU core voltage, or to set the load
+-- line. The encodings and bounds follow the vendor setup's own ladders.
+entity VcoreRequest {
+    voltage_mv: Integer
+    source: VcoreSource
+    state: requested | resolved | programmed | refused
+    resolved_mv: Integer when state = resolved | programmed | refused
+    program: RegisterProgram when state = programmed
+
+    transitions state {
+        requested -> resolved
+        resolved -> programmed
+        resolved -> refused
+        terminal: programmed, refused
+    }
+}
+
+-- One load-line change. Stored value 0 leaves the silicon untouched and
+-- creates no entity; values 1 through 5 program the field pair.
+entity LoadLineSetting {
+    stored_value: Integer
+    program: LlcProgram
+}
+
+-- One OC mailbox transaction for the Haswell line: the interface word in
+-- bits 63:32 of the MSR write and the data word in bits 31:0. The offset
+-- rides an 11-bit signed field in 1/1024 V units, the voltage target a
+-- 12-bit unsigned field in the same units, both following the upstream
+-- coreboot OC mailbox driver's layout.
+entity MailboxTransaction {
+    cmd: Integer
+    plane: Integer
+    run_busy: Integer
+    offset_units: Integer
+    target_mode: Integer
+    voltage_target: Integer
+    max_ratio: Integer
+
+    -- Interface word: command in bits 7:0, plane in bits 15:8, run/busy at
+    -- bit 31.
+    interface_word: cmd + plane * 256 + run_busy * 2147483648
+
+    -- Data word: offset in bits 31:21, target mode at bit 20, voltage
+    -- target in bits 19:8, max ratio in bits 7:0.
+    data_word: offset_units * 2097152 + target_mode * 1048576
+        + voltage_target * 256 + max_ratio
+
+    invariant CmdIsVoltageFreqOverride {
+        cmd = config.mailbox_cmd_read or cmd = config.mailbox_cmd_write
+    }
+
+    invariant PlaneWithinRange {
+        plane >= 0 and plane < config.mailbox_planes
+    }
+
+    invariant RunBusyIsBit {
+        run_busy = 0 or run_busy = 1
+    }
+
+    invariant OffsetWithinCap {
+        offset_units >= -config.mailbox_offset_cap_units
+            and offset_units <= config.mailbox_offset_cap_units
+    }
+
+    invariant ModeIsBit {
+        target_mode = 0 or target_mode = 1
+    }
+
+    invariant TargetWithinWidth {
+        voltage_target >= 0 and voltage_target < 4096
+    }
+
+    invariant RatioWithinWidth {
+        max_ratio >= 0 and max_ratio < 256
+    }
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- The offset ladder: the setup's Offset Voltage values are signed 5 mV
+    -- steps, from -0.300 V through +0.600 V, asymmetric about zero.
+    step_mv: Integer = 5
+    offset_min_mv: Integer = -300
+    offset_max_mv: Integer = 600
+
+    -- The fixed ladder: an absolute VID byte, 0x47 at the 0.600 V base, one
+    -- per 5 mV, wrapping at 256; the setup exposes 0.600 V through 1.700 V.
+    fix_base_mv: Integer = 600
+    fix_base_byte: Integer = 71
+    fix_min_mv: Integer = 600
+    fix_max_mv: Integer = 1700
+
+    -- The load-line ladder: the setup's stored values 1 through 5; 0 means
+    -- leave the silicon untouched.
+    llc_max_value: Integer = 5
+
+    -- ISL6367 registers over the PCH SMBus, from the recovered map. The CPU
+    -- controller answers at 7-bit 0x40 and the iGPU controller at 0x70; the
+    -- offset and fixed values share one register.
+    cpu_addr: Integer = 64
+    igpu_addr: Integer = 112
+    reg_offset_fix: Integer = 219
+    reg_llc: Integer = 211
+    reg_llc_en: Integer = 212
+    reg_init_d1: Integer = 209
+    reg_arm: Integer = 214
+    reg_init_d8: Integer = 216
+    reg_init_d9: Integer = 217
+    reg_feedback: Integer = 139
+
+    -- The MSR 0x150 OC mailbox for the Haswell line: the voltage/frequency
+    -- override commands, six voltage planes, and the offset cap of 125 mV,
+    -- which is exactly 128 units of 1/1024 V.
+    mailbox_msr: Integer = 336
+    mailbox_cmd_read: Integer = 16
+    mailbox_cmd_write: Integer = 17
+    mailbox_planes: Integer = 6
+    mailbox_offset_cap_units: Integer = 128
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- The board asks for a core voltage setpoint: an offset on top of the
+-- SVID-commanded voltage, or a fixed target. The request is recorded with
+-- its source before it resolves.
+rule RequestRecorded {
+    when: VcoreVoltageRequested(voltage_mv, source)
+    ensures: VcoreRequest.created(voltage_mv: voltage_mv, source: source, state: requested)
+}
+
+-- An offset request inside the setup ladder's asymmetric span resolves to
+-- its value; one outside the span is refused and leaves the silicon
+-- untouched.
+rule OffsetRequestResolved {
+    when: request: VcoreRequest.created
+    requires: request.source = offset
+    requires: request.voltage_mv >= config.offset_min_mv
+    requires: request.voltage_mv <= config.offset_max_mv
+    ensures:
+        request.state = resolved
+        request.resolved_mv = request.voltage_mv
+}
+
+rule OffsetRequestRefused {
+    when: request: VcoreRequest.created
+    requires: request.source = offset
+    requires: request.voltage_mv < config.offset_min_mv
+    requires: request.voltage_mv > config.offset_max_mv
+    ensures: request.state = refused
+}
+
+-- A fixed request inside the setup ladder's absolute span resolves to its
+-- value; one outside is refused.
+rule FixedRequestResolved {
+    when: request: VcoreRequest.created
+    requires: request.source = fixed
+    requires: request.voltage_mv >= config.fix_min_mv
+    requires: request.voltage_mv <= config.fix_max_mv
+    ensures:
+        request.state = resolved
+        request.resolved_mv = request.voltage_mv
+}
+
+rule FixedRequestRefused {
+    when: request: VcoreRequest.created
+    requires: request.source = fixed
+    requires: request.voltage_mv < config.fix_min_mv
+    requires: request.voltage_mv > config.fix_max_mv
+    ensures: request.state = refused
+}
+
+-- A resolved offset request programs the trim register with the two's
+-- complement step byte.
+rule OffsetProgrammed {
+    when: request: VcoreRequest.state transitions_to resolved
+    requires: request.source = offset
+    let steps = request.resolved_mv / config.step_mv
+    ensures:
+        request.state = programmed
+        request.program = {
+            reg: config.reg_offset_fix,
+            byte: if steps < 0: 256 + steps else: steps
+        }
+
+    @guidance
+        -- The write goes over the PCH SMBus to the controller at 7-bit
+        -- 0x40 (CPU) or 0x70 (iGPU), register 0xDB. Integer division
+        -- truncates toward zero, so an off-grid request snaps to the nearer
+        -- step inside the span.
+}
+
+-- A resolved fixed request programs the same register with the absolute
+-- VID byte.
+rule FixedProgrammed {
+    when: request: VcoreRequest.state transitions_to resolved
+    requires: request.source = fixed
+    let raw = config.fix_base_byte
+        + (request.resolved_mv - config.fix_base_mv) / config.step_mv
+    ensures:
+        request.state = programmed
+        request.program = {
+            reg: config.reg_offset_fix,
+            byte: if raw < 256: raw else: raw - 256
+        }
+
+    @guidance
+        -- The ladder wraps at 256: 1.525 V and above land in the low byte
+        -- range, exactly as the vendor setup's own Fixed Voltage values
+        -- show (1.700 V = 0x23).
+}
+
+-- A load-line change beyond the leave-alone value programs the field pair:
+-- the inverted two-bit field and the enable bit that only the strongest
+-- setting clears.
+rule LoadLineProgrammed {
+    when: LoadLineLevelRequested(stored_value)
+    requires: stored_value > 0 and stored_value <= config.llc_max_value
+    ensures: LoadLineSetting.created(
+        stored_value: stored_value,
+        program: {
+            d3_bits: if stored_value = 2: 3
+                     else if stored_value = 3: 2
+                     else if stored_value = 4: 1
+                     else: 0,
+            d4_bit: if stored_value = 1: 0 else: 1
+        })
+
+    @guidance
+        -- Writes go to the load-line register 0xD3 (bits 1:0, preserving
+        -- the rest) and the enable register 0xD4 (bit 0, preserving the
+        -- rest). The disassembly recovered the mapping; the live diff pass
+        -- confirms it per stored value.
+}
+
+-- One OC mailbox transaction is recorded with its layout fields; the words
+-- derive from them.
+rule MailboxTransactionRecorded {
+    when: MailboxOverrideRequested(cmd, plane, run_busy, offset_units,
+                                   target_mode, voltage_target, max_ratio)
+    ensures: MailboxTransaction.created(
+        cmd: cmd,
+        plane: plane,
+        run_busy: run_busy,
+        offset_units: offset_units,
+        target_mode: target_mode,
+        voltage_target: voltage_target,
+        max_ratio: max_ratio
+    )
+
+    @guidance
+        -- The 64-bit MSR write carries the data word in bits 31:0 and the
+        -- interface word in bits 63:32, with the run/busy bit set while the
+        -- transaction is in flight.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant OffsetLadderAsymmetric {
+    config.offset_min_mv = -60 * config.step_mv
+        and config.offset_max_mv = 120 * config.step_mv
+}
+
+invariant FixedLadderWraps {
+    config.fix_base_byte
+        + (config.fix_max_mv - config.fix_base_mv) / config.step_mv >= 256
+}
+
+invariant MailboxCapIsMillivolts {
+    config.mailbox_offset_cap_units * 1000 / 1024 = 125
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+surface VcoreControl {
+    provides:
+        VcoreVoltageRequested(voltage_mv: Integer, source: VcoreSource)
+        LoadLineLevelRequested(stored_value: Integer)
+        MailboxOverrideRequested(cmd: Integer, plane: Integer, run_busy: Integer,
+                                 offset_units: Integer, target_mode: Integer,
+                                 voltage_target: Integer, max_ratio: Integer)
+}
+
+surface VcoreReadback {
+    context request: VcoreRequest where state = programmed
+
+    exposes:
+        request.program.byte
+
+    @guarantee WireByteReadable
+        -- The programmed register byte is readable back over the SMBus, so
+        -- a bench pass can confirm the setpoint without powering down.
+}

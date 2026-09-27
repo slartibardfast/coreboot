@@ -199,11 +199,11 @@ chip northbridge/intel/sandybridge
 				end
 				device i2c 0x40 on
 					chip drivers/i2c/isl6367
-						/* The Route A attestation state: a
-						   stock-range fixed setpoint the readback
-						   can decode unambiguously, and the mid
-						   load-line level. Both inside the
-						   platform-safe envelope. */
+						# The Route A attestation state: a
+						# stock-range fixed setpoint the readback
+						# can decode unambiguously, and the mid
+						# load-line level. Both inside the
+						# platform-safe envelope.
 						register "vcore_offset_mv" = "0"
 						register "vcore_fix_mv" = "1350"
 						register "loadline_level" = "3"

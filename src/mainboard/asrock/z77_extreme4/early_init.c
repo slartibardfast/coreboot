@@ -2,7 +2,7 @@
 
 #include <bootblock_common.h>
 #include <console/console.h>
-#include <stage.h>
+#include <rules.h>
 #include <superio/nuvoton/nct6776/nct6776.h>
 #include <superio/nuvoton/common/nuvoton.h>
 #include <types.h>

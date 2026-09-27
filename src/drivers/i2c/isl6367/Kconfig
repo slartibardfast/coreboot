@@ -1,0 +1,19 @@
+## SPDX-License-Identifier: GPL-2.0-or-later
+
+config DRIVERS_I2C_ISL6367
+	bool
+	default n
+	help
+	  Enable support for the Intersil/Renesas ISL6367 VR12/IMVP7
+	  multiphase controller. Used for adjusting the CPU core voltage
+	  and load line on some mainboards.
+
+config DRIVERS_I2C_ISL6367_VCORE
+	bool
+	default n
+	select DRIVERS_I2C_ISL6367
+	help
+	  Enable this if the mainboard's CPU core voltage offset, fixed
+	  voltage or load line is adjusted with an ISL6367 chip defined in
+	  the board's devicetree, applied from romstage before the CPU's
+	  SVID takes over.

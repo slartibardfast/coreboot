@@ -201,10 +201,10 @@ chip northbridge/intel/sandybridge
 					chip drivers/i2c/isl6367
 						# The Route A attestation state: the load-line
 						# field pair only. Droop impedance is not a
-						# setpoint, so the write is voltage-neutral for
-						# the OC; the offset and fixed encodings stay
-						# spec'd and tested but are not applied live
-						# until a VT10-instrumented session does it
+						# setpoint, so the write changes no voltage;
+						# the offset and fixed encodings stay spec'd
+						# and tested but are not applied live until a
+						# VT10-instrumented session does it
 						# deliberately.
 						register "vcore_offset_mv" = "0"
 						register "vcore_fix_mv" = "0"

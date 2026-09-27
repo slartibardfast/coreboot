@@ -197,6 +197,14 @@ chip northbridge/intel/sandybridge
 						device generic 3 alias v_dram on end
 					end
 				end
+				device i2c 0x40 on
+					chip drivers/i2c/isl6367
+						register "vcore_offset_mv" = "0"
+						register "vcore_fix_mv" = "0"
+						register "loadline_level" = "0"
+						device generic 1 alias v_core on end
+					end
+				end
 			end
 		end
 	end

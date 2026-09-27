@@ -2,9 +2,10 @@
 
 #include <bootblock_common.h>
 #include <console/console.h>
-#include <drivers/i2c/isl6367/isl6367.h>
+#include <stage.h>
 #include <superio/nuvoton/nct6776/nct6776.h>
 #include <superio/nuvoton/common/nuvoton.h>
+#include <types.h>
 
 void bootblock_mainboard_early_init(void)
 {
@@ -12,6 +13,11 @@ void bootblock_mainboard_early_init(void)
 	if (CONFIG(CONSOLE_SERIAL))
 		nuvoton_enable_serial(NCT6776_SP1, CONFIG_TTYS0_BASE);
 }
+
+#if ENV_ROMSTAGE
+#include <drivers/i2c/isl6367/isl6367.h>
+
+void mainboard_early_init(bool s3resume);
 
 void mainboard_early_init(bool s3resume)
 {
@@ -25,3 +31,4 @@ void mainboard_early_init(bool s3resume)
 			printk(BIOS_WARNING, "ISL6367 vcore settings failed\n");
 	}
 }
+#endif /* ENV_ROMSTAGE */

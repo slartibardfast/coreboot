@@ -1,23 +1,36 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 
+#include <console/console.h>
 #include <device/device.h>
 #include <device/pnp.h>
 #include <pc80/keyboard.h>
 #include <superio/conf_mode.h>
 
+#include "chip.h"
 #include "nct6776.h"
+#include "nct6776_hwm.h"
 
 /* Both NCT6776D and NCT6776F package variants are supported. */
 
 static void nct6776_init(struct device *dev)
 {
+	struct superio_nuvoton_nct6776_config *conf = dev->chip_info;
+	struct resource *res;
+
 	if (!dev->enabled)
 		return;
 
 	switch (dev->path.pnp.device) {
-	/* TODO: Might potentially need code for HWM or FDC etc. */
 	case NCT6776_KBC:
 		pc_keyboard_init(NO_AUX_DEVICE);
+		break;
+	case NCT6776_HWM_FPLED:
+		if (!IS_ENABLED(CONFIG_SUPERIO_NUVOTON_NCT6776_HWM) || !conf)
+			break;
+		res = probe_resource(dev, PNP_IDX_IO0);
+		if (!res)
+			break;
+		nct6776_hwm_init(res->base, conf);
 		break;
 	}
 }

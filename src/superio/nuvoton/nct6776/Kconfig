@@ -3,3 +3,12 @@
 config SUPERIO_NUVOTON_NCT6776
 	bool
 	select SUPERIO_NUVOTON_COMMON_PRE_RAM
+
+config SUPERIO_NUVOTON_NCT6776_HWM
+	bool
+	default n
+	help
+	  Enable this if the mainboard's fan curves are programmed with the
+	  NCT6776 hardware monitor defined in the board's devicetree, applied
+	  from ramstage on every boot so no stale register state meets the
+	  operating system.

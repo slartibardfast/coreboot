@@ -1,0 +1,306 @@
+-- allium: 3
+-- fan-curve.allium
+--
+-- Scope: the fan-control programming path of the ASRock Z77 Extreme4
+--   coreboot port, as programmed through the NCT6776 hardware monitor at
+--   I/O 0x290.
+-- Includes: the SmartFan IV curve point encoding as register round-trips,
+--   the mode field values, the slew-rate step times and their asymmetry
+--   rule, the critical-temperature net, the temperature source addressing,
+--   the duty bounds and monotonicity rules, and the boot-time apply
+--   lifecycle.
+-- Excludes:
+--   - The SuperI/O indexed-I/O transport (the config door, the bank
+--     select at register 0x4E and the index/data ports are external)
+--   - Tachometer reading and RPM reporting (a monitoring surface)
+--   - The chassis-fan2 header's GPIO level encoding (a two-bit GPIO code,
+--     not a PWM curve; a fixed-level knob covers it)
+--   - The thermal-cruise and manual fallback modes (single-register
+--     knobs, recorded in docs/z77-fan-control.md; the shipped design is
+--     the SmartFan IV curve per call/0016)
+-- Depends: the recovered register map, AXTU's board config and the design
+--   policy, recorded host-side in docs/z77-fan-control.md and call/0016.
+
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
+
+value FanProgram {
+    output_base: Integer
+    mode_field: Integer
+    point_temp: List<Integer>
+    point_duty: List<Integer>
+    step_up_ticks: Integer
+    step_down_ticks: Integer
+    critical_temp_c: Integer
+}
+
+------------------------------------------------------------
+-- Contracts
+------------------------------------------------------------
+
+contract CurveEncoding {
+    encode: (output_base: Integer, temps: List<Integer>, duties: List<Integer>,
+             critical_temp_c: Integer, step_up_ticks: Integer,
+             step_down_ticks: Integer) -> FanProgram?
+
+    @invariant MonotoneNonDecreasing
+        -- Both the temperatures and the duties are monotone non-decreasing
+        -- across the six points: the curve never commands less duty at a
+        -- hotter point, and never revisits a temperature.
+
+    @invariant FloorBelowEveryPoint
+        -- The first duty sits at or above the lowest-safe floor of 51
+        -- (about 20 percent), the lowest the fans hold without stalling;
+        -- the exact shipped value is validated at the hardware pass.
+
+    @invariant FullSpeedCeiling
+        -- The last point's duty is 255: the curve reaches full speed at
+        -- its hottest programmed point, before the critical net takes over.
+
+    @invariant CriticalAboveTheCurve
+        -- The critical temperature is strictly above the last point's
+        -- temperature and at most 127 C. Above it the chip hardware-forces
+        -- 100 percent duty; the net must never shadow the curve's own
+        -- operating range.
+}
+
+contract SlewEncoding {
+    encode: (up_ticks: Integer, down_ticks: Integer) -> FanProgram?
+
+    @invariant TicksWithinByte
+        -- Each step time fits an 8-bit register; one tick is 100 ms in PWM
+        -- mode.
+
+    @invariant AsymmetricSlew
+        -- The step-down time strictly exceeds the step-up time: bursts are
+        -- answered fast, and the fans ease down slowly enough that they
+        -- never sawtooth around a curve point.
+}
+
+contract SourceAddressing {
+    source_reg: (index: Integer) -> Integer?
+
+    @invariant BankSixSequence
+        -- The source selectors sit in bank 6 at registers 0x621 through
+        -- 0x626, one per temperature output, source in bits 4:0. Indices
+        -- beyond the six outputs are refused.
+}
+
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+-- The corroborated sources. CPUTIN carries AXTU's selector value 0x0C;
+-- systin and peci stay coarse until the hardware pass reads them.
+enum TempSource { cputin | systin | peci }
+
+------------------------------------------------------------
+-- Entities
+------------------------------------------------------------
+
+-- One boot-time fan-control programming for one PWM output: the devicetree
+-- is the request source, the driver validates the curve against this spec
+-- and programs the output's bank. There is no runtime request path. The
+-- output base is the devicetree's binding of the header to one of the
+-- chip's seven PWM outputs (bases 0x100, 0x200, 0x300, 0x800, 0x900, 0xa00,
+-- 0xb00); which output drives which physical header is the devicetree's
+-- binding, corroborated at the hardware pass. The chassis-fan2 GPIO header
+-- never reaches this entity.
+entity FanCurveRequest {
+    output_base: Integer
+    source: TempSource
+    temps: List<Integer>
+    duties: List<Integer>
+    critical_temp_c: Integer
+    step_up_ticks: Integer
+    step_down_ticks: Integer
+    state: requested | resolved | refused | programmed
+    program: FanProgram when state = programmed
+
+    transitions state {
+        requested -> resolved
+        requested -> refused
+        resolved -> programmed
+        terminal: refused, programmed
+    }
+}
+
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- The design policy defaults (call/0016): a comfort knee at 50 C, full
+    -- speed at 80 C, the chip's critical-temperature net at 85 C, and the
+    -- lowest-safe floor of about 20 percent duty. The hardware pass
+    -- validates the floor and may retune the defaults; the rules below
+    -- hold for any board-author values.
+    floor_min_duty: Integer = 51
+    knee_temp_c: Integer = 50
+    full_temp_c: Integer = 80
+    critical_temp_c: Integer = 85
+    step_up_ticks: Integer = 30
+    step_down_ticks: Integer = 120
+
+    -- Chip facts, from the recovered register map.
+    sf4_points: Integer = 6
+    duty_max: Integer = 255
+    temp_max_c: Integer = 127
+    ticks_max: Integer = 255
+    tick_ms: Integer = 100
+    mode_manual: Integer = 0
+    mode_thermal_cruise: Integer = 1
+    mode_speed_cruise: Integer = 2
+    mode_sf4: Integer = 4
+    source_cputin: Integer = 12
+
+    -- The register offsets within one PWM output's bank, and the source
+    -- selector base in bank 6. The output bases are 0x100, 0x200, 0x300,
+    -- 0x800, 0x900, 0xa00, 0xb00; which output drives which header is a
+    -- devicetree binding the hardware pass corroborates.
+    reg_step_up: Integer = 3
+    reg_step_down: Integer = 4
+    reg_auto_temp: Integer = 33
+    reg_auto_pwm: Integer = 39
+    reg_critical_temp: Integer = 53
+    reg_source_base: Integer = 1569
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- The devicetree asks for one output's fan control: a SmartFan IV curve
+-- with its slew times and critical net. The request is recorded before it
+-- resolves.
+rule FanCurveRequested {
+    when: FanControlRequested(output_base, source, temps, duties,
+                              critical_temp_c, step_up_ticks, step_down_ticks)
+    ensures: FanCurveRequest.created(
+        output_base: output_base,
+        source: source,
+        temps: temps,
+        duties: duties,
+        critical_temp_c: critical_temp_c,
+        step_up_ticks: step_up_ticks,
+        step_down_ticks: step_down_ticks,
+        state: requested
+    )
+}
+
+-- A request whose curve, critical temperature and slew pair satisfy the
+-- contracts resolves to its values. Only CPUTIN is a corroborated source
+-- until the hardware pass reads the others, so it is the only one the
+-- resolved path accepts.
+rule FanCurveResolved {
+    when: request: FanCurveRequest.state transitions_to requested
+    requires: request.source = cputin
+    requires: request.temps.count = config.sf4_points
+    requires: request.duties.count = config.sf4_points
+    requires: request.duties.first >= config.floor_min_duty
+    requires: request.duties.last = config.duty_max
+    requires: request.critical_temp_c <= config.temp_max_c
+    requires: request.step_down_ticks > request.step_up_ticks
+    ensures: request.state = resolved
+
+    @guidance
+        -- The pairwise monotonicity of temps and duties is checked by the
+        -- encoder (fan_curve_valid) and exercised per adjacent pair by the
+        -- property tests; this rule carries the aggregate conditions.
+}
+
+-- A request that violates any bound is refused and leaves the chip
+-- untouched: non-monotone curves, duties below the floor, a curve that
+-- never reaches full speed, a critical temperature inside the curve's own
+-- range, a slew pair that would sawtooth, or an uncorroborated source.
+rule FanCurveRefused {
+    when: request: FanCurveRequest.state transitions_to requested
+    requires: request.source != cputin
+        or request.duties.count != config.sf4_points
+        or request.duties.first < config.floor_min_duty
+        or request.duties.last != config.duty_max
+        or request.critical_temp_c > config.temp_max_c
+        or request.step_down_ticks <= request.step_up_ticks
+    ensures: request.state = refused
+}
+
+-- A resolved request programs the output's bank: the mode field carries
+-- SmartFan IV, the points land at base+0x21+i and base+0x27+i, the slew
+-- times at base+0x03/0x04, and the critical temperature at base+0x35.
+rule FanCurveProgrammed {
+    when: request: FanCurveRequest.state transitions_to resolved
+    ensures:
+        request.state = programmed
+        request.program = {
+            output_base: request.output_base,
+            mode_field: config.mode_sf4,
+            point_temp: request.temps,
+            point_duty: request.duties,
+            step_up_ticks: request.step_up_ticks,
+            step_down_ticks: request.step_down_ticks,
+            critical_temp_c: request.critical_temp_c
+        }
+
+    @guidance
+        -- The writes go through the indexed-I/O transport with the bank
+        -- select at register 0x4E, external to this spec. The hardware
+        -- monitor is programmed at every boot, so no stale register state
+        -- meets the operating system.
+}
+
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant SlewAsymmetryDefault {
+    config.step_down_ticks > config.step_up_ticks
+}
+
+invariant CriticalAboveFullSpeed {
+    config.critical_temp_c > config.full_temp_c
+    and config.full_temp_c <= config.temp_max_c
+    and config.critical_temp_c <= config.temp_max_c
+}
+
+invariant FloorIsLowestSafe {
+    config.floor_min_duty >= 1
+    and config.floor_min_duty * 100 <= 30 * config.duty_max
+}
+
+invariant ModeFieldEncodings {
+    config.mode_sf4 = 4
+    and config.mode_manual = 0
+    and config.mode_thermal_cruise = 1
+    and config.mode_speed_cruise = 2
+}
+
+invariant SourceBaseIsBankSix {
+    config.reg_source_base = 6 * 256 + config.reg_auto_temp
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+surface FanControl {
+    provides:
+        FanControlRequested(output_base: Integer,
+                            source: TempSource, temps: List<Integer>,
+                            duties: List<Integer>, critical_temp_c: Integer,
+                            step_up_ticks: Integer, step_down_ticks: Integer)
+}
+
+surface FanProgramReadback {
+    context request: FanCurveRequest where state = programmed
+
+    exposes:
+        request.program.point_temp
+        request.program.point_duty
+        request.program.critical_temp_c
+
+    @guarantee RegisterValuesReadable
+        -- The programmed point and critical-temperature values are
+        -- readable back through the indexed-I/O transport, so the
+        -- hardware pass can confirm the curve without powering down.
+}
